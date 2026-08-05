@@ -1,0 +1,7 @@
+tiara/models/**/*.pickle filter=lfs diff=lfs merge=lfs -text
+tiara/models/**/*.npy filter=lfs diff=lfs merge=lfs -text
+tiara/models/**/*.npz filter=lfs diff=lfs merge=lfs -text
+tiara/models/**/*.ckpt filter=lfs diff=lfs merge=lfs -text
+tiara/models/**/*.pt filter=lfs diff=lfs merge=lfs -text
+tiara/models/**/*.pth filter=lfs diff=lfs merge=lfs -text
+tiara/models/**/*.pkl filter=lfs diff=lfs merge=lfs -text

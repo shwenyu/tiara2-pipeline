@@ -67,3 +67,7 @@ benchmark_results/
 *.key
 credentials*
 secrets*
+
+# Required benchmark models are versioned with Git LFS.
+!tiara/models/
+!tiara/models/**
