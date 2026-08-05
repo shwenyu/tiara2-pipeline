@@ -1,0 +1,79 @@
+# Tiara2 corpus pipeline (recommended orchestrator).
+#
+# Why Snakemake:
+#   * Declarative DAG -> only re-runs stages whose inputs/params changed.
+#   * Wildcards over {partition}/{bin}/{split} give free parallelism.
+#   * `snakemake -n` dry-run shows exactly what would run (great for debugging).
+#   * Per-rule resources (mem/threads) map cleanly onto the shared node.
+#
+# This Snakefile expresses the DAG; heavy logic lives in scripts/ and stays
+# unit-testable on its own. Validate on your side with:
+#   snakemake -n -s workflow/Snakefile --configfile config/config.yaml
+
+import os
+
+configfile: "config/config.yaml"
+
+def p(s):
+    return s.format(base=config["base"], input_tag=config["input_tag"],
+                    output_tag=config["output_tag"])
+
+SOURCE      = p(config["source_ready"])
+WORK        = p(config["work_root"])
+RESULTS     = p(config["results_root"])
+CLASSES     = config["classes"]
+SPLITS      = config["splits"]
+D           = config["dedup"]
+R           = config["resources"]
+
+SCRIPTS = os.path.join(workflow.basedir, "..", "scripts")
+
+rule all:
+    input:
+        os.path.join(RESULTS, "regroup_summary.json")
+
+# Stage 1: shard the corpus into (partition, length_bin, split) once.
+rule bin_by_length:
+    input:
+        expand(os.path.join(SOURCE, "{split}/{cls}.fasta"),
+               split=SPLITS, cls=CLASSES)
+    output:
+        manifest = os.path.join(WORK, "binned/bin_manifest.json")
+    params:
+        out = os.path.join(WORK, "binned")
+    threads: 4
+    shell:
+        "python {SCRIPTS}/bin_by_length.py "
+        "--source-root {SOURCE} --out {params.out} "
+        "--splits {SPLITS} --classes {CLASSES} "
+        "--partition-by {D[partition_by]} --mode {D[length_mode]} "
+        "--min-cov {D[min_cov]} "
+        "--discrete-lengths {D[discrete_lengths]} --tolerance {D[tolerance]}"
+
+# Stage 2: per-bin cross-split searches + priority filter (checkpointed).
+# Discovered dynamically from the shard tree after Stage 1 (use a checkpoint
+# rule in production; kept as a driver call here for portability).
+rule dedup_bins:
+    input:
+        manifest = os.path.join(WORK, "binned/bin_manifest.json")
+    output:
+        done = os.path.join(WORK, "dedup/.dedup.done")
+    threads: R["threads"]
+    shell:
+        "bash {SCRIPTS}/run_dedup_bins.sh {WORK} {config[mmseqs_bin]} "
+        "{D[min_seq_id]} {D[min_cov]} {D[sensitivity]} {D[max_seqs]} "
+        "{D[max_accept]} {R[threads]} {R[split_memory_limit]} && "
+        "touch {output.done}"
+
+# Stage 3: rebuild per-species/per-split FASTAs from surviving IDs.
+rule regroup:
+    input:
+        done = os.path.join(WORK, "dedup/.dedup.done")
+    output:
+        summary = os.path.join(RESULTS, "regroup_summary.json")
+    shell:
+        "python {SCRIPTS}/regroup_by_metadata.py "
+        "--source-root {SOURCE} --out {RESULTS} "
+        "--splits {SPLITS} --classes {CLASSES} "
+        "--removed-json $(find {WORK}/dedup -name 'removed_*.json') "
+        "--summary {output.summary}"

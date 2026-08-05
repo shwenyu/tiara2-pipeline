@@ -1,0 +1,787 @@
+# Single source of truth for the Tiara2 corpus pipeline.
+# Change parameters here only; every stage reads this file.
+
+# NOTE ON PATHS
+#   - CODE paths are resolved RELATIVE to the package (tiara2/paths.py); nothing
+#     here needs to hardcode where the project lives. Move the repo to ~/ on any
+#     machine and it still works.
+#   - DATA paths below are absolute ON PURPOSE: they point at the user's existing
+#     /data/shouhanyu layout (from ncbi_pipeline.py / 05_train) so this pipeline
+#     plugs straight into the old data + current workflow. Change `base`/`data_home`
+#     to relocate data; every derived path follows via {templates}.
+
+# --- TWO STORAGE TIERS ------------------------------------------------------
+# COLD (`base`, /data, 135 T HDD array): things read once, or that must survive
+#   -- raw assemblies, assembly_summary metadata, the entity index, published
+#   models, logs, results, the version registry.
+# HOT (`fast_base`, /ssd, 14 T NVMe): things read over and over -- the chopped
+#   corpus, the length-bin shards, the 2-bit sequence pack, the feature cache.
+#
+# The split is not about size, it is about READ COUNT. feature_cache is written
+# once but read by every HP candidate and every final model; seq_pack is read
+# once per (stage, k). Those are the two that were starving on spindles.
+#
+# Set fast_base == base to collapse the tiers back onto one disk.
+data_home: /data/shouhanyu            # top of the data tree (isolates/MAGs/etc.)
+base: /data/shouhanyu/Tiara2          # COLD tier: durable, big, slow
+fast_home: /ssd/shouhanyu             # top of the NVMe tree
+fast_base: /ssd/shouhanyu/Tiara2      # HOT tier: scratch + hot reads, rebuildable
+conda_env: /data/shouhanyu/envs/tiara2
+# --- Version tags: TWO layers, on purpose. --------------------------------
+# corpus_tag  = the CORPUS layer   (acquire -> chop_bin -> dedup -> regroup)
+# version_tag = the TRAINING layer (tfidf/features -> HP -> models -> publish)
+#
+# They are split because they change at completely different rates and cost.
+# Every path below is templated off one tag or the other, and a stage is
+# skipped when its manifest fingerprint is unchanged. With a SINGLE tag driving
+# every path, bumping it to record a new training run also relocated work_root,
+# so the tens of hours of mmseqs dedup behind it silently re-ran for nothing.
+#
+#   bump version_tag -> new subsampling / k / hyper-parameters / final models
+#   bump corpus_tag  -> chop parameters, dedup thresholds, or a re-partition
+#                       of train/validation/test
+corpus_tag:  v2_1_2
+version_tag: v2_2_0
+model_tag:   v2.2.0                   # published params; bump WITH version_tag
+
+# Backwards-compatible aliases: older templates and helper scripts still read
+# input_tag / output_tag, so they simply follow the two tags above.
+input_tag:  "{corpus_tag}"
+output_tag: "{version_tag}"
+
+# Immutable INPUT corpus: the raw fetched/split FASTA. Never written by this
+# pipeline, only read. Adding new data changes this; nothing else should.
+source_ready: "{fast_base}/train_ready_{input_tag}"
+
+# PROCESSED corpus: what regroup materialises after chop_bin + dedup, i.e. the
+# source corpus minus the cross-split leakage that dedup found. This is the
+# CORPUS layer's real output and it is what training must consume.
+#
+# Previously `train.train_ready` pointed straight back at `source_ready` while
+# regroup wrote into results_root, so the deduped corpus was built every round
+# and then read by nobody -- training silently used the UN-deduped data,
+# defeating the entire point of the dedup stage.
+corpus_ready: "{fast_base}/corpus_ready_{corpus_tag}"
+
+# Final fragment-level bp balancing checkpoint. Runs after regroup and before
+# TF-IDF / seqpack / feature cache.
+#
+# v2.1.2 BALANCED ONLY TRAIN (`eval_mode: symlink`) and left validation as a
+# symlink to the raw corpus: 66.4 M records, 98.6% eukarya. Everything
+# downstream that *ranks* or *fits* on validation therefore rewarded a constant
+# "always eukarya" classifier, and `final_include_validation: true` then folded
+# that split into the final fit. The published pack predicted eukarya with
+# p=1.000000 for all 6,015,853 benchmark fragments. Hence v2.1.3:
+#
+#   balance_splits: [train, validation]   <- validation is balanced too, from
+#                                            its OWN bp (no leakage into train)
+#   test_mode: symlink                    <- test KEEPS the real prior; it is
+#                                            the only honest operating point
+#
+# `tiara2 status` checks the plan, the report, and the five FASTAs of EVERY
+# balanced split.
+fragment_bp_balance:
+  enabled: true
+  source_root: "{corpus_ready}"
+  # v2.2.0 is a k-only experiment: reuse the byte-identical, already
+  # validated v2.1.3 train+validation bp-balanced corpus. Do NOT make a
+  # new corpus path from version_tag, or k attribution is lost.
+  output_root: "{fast_base}/corpus_ready_v2_1_3_bpbalanced"
+  plan_file: sampling_plan.json
+  report_file: sampling_report.tsv
+  seed: 42
+  min_len: 1000
+  min_acgt_purity: 0.9
+  balance_splits: [train, validation]
+  # How to mirror the splits that are NOT balanced (i.e. test):
+  # symlink | copy | none. Kept as `eval_mode` for backwards compatibility.
+  eval_mode: symlink
+  # Fail instead of silently redistributing the budget of a weighted euk clade
+  # that has zero available bp. v2.1.2 lost alveolata / stramenopiles /
+  # land_plant / eukarya_other (35% of the euk budget) exactly this way.
+  require_clades: true
+  # Resolve euk clades from taxids instead of the ambiguous `sg=` header text
+  # (Opisthokonta-Metazoa / Archaeplastida / Protist(...) each collapse into a
+  # single bucket otherwise). Empty taxdump_dir = keep header-based resolution.
+  taxdump_dir: "{base}/taxonomy"
+  accession_taxid_tsv: ""
+  # Runner knobs live here so the CLI is the single source of truth and the
+  # shell wrapper cannot drift from the config again.
+  workers: 24
+  euk_workers: 12
+  io_buffer_mb: 32
+  # Tiara Supplementary Table S3 top-level fragment priors.
+  class_priors:
+    bacteria:     0.42438644
+    eukarya:      0.31667691
+    archaea:      0.17336867
+    plastids:     0.05765327
+    mitochondria: 0.02791470
+  # Current v2.1.2 curation shares within the fixed Eukarya budget.
+  euk_weights:
+    fungi:                0.20
+    alveolata:            0.12
+    stramenopiles:        0.10
+    other_protist:        0.12
+    algae:                0.08
+    metazoa_invertebrate: 0.15
+    land_plant:           0.13
+    metazoa_vertebrate:   0.10
+
+# Scratch + published outputs (derived; safe to delete and rebuild).
+# work_root holds the chop_bin / dedup / regroup manifests, so it belongs to the
+# CORPUS layer and is keyed on corpus_tag. Keying it on the training tag (the
+# old behaviour) is exactly what made a new training version re-run the whole
+# mmseqs dedup.
+work_root: "{fast_base}/.work_pipeline_{corpus_tag}"
+results_root: "{base}/results_{version_tag}"
+log_dir: "{base}/log/pipeline_{version_tag}"
+checkpoint_root: "{base}/checkpoints/pipeline_{version_tag}"
+
+# --- Storage tiers: which keys live on which disk, and the free-space floor.
+# `scripts/check_storage.py` (and `tiara2 status`) reads this to report the
+# footprint per tier and to refuse a run that cannot finish.
+storage:
+  hot_keys:  [source_ready, corpus_ready, fragment_bp_balance.output_root, work_root,
+              train.flat_data, train.tfidf_dir, train.feature_cache, train.seq_pack]
+  cold_keys: [results_root, log_dir, checkpoint_root, train.out_models,
+              train.log_dir]
+  # Headroom demanded on the hot tier before a long stage starts. The rebuilt
+  # corpus is ~40M fragments x ~4.2 kb ~= 170 GB, seq_pack ~0.2 TB, and the
+  # feature cache is the giant (~5-6 TB at k<=7). 7000 GB leaves room for the
+  # cache plus the shard scratch that precedes it.
+  min_fast_free_gb: 7000
+  min_cold_free_gb: 500
+
+# --- Retention: which DERIVED artifacts survive into the next round. -------
+# A round materialises several TB that is all reproducible from source_ready;
+# only the REBUILD COST should decide what to keep. See tiara2/retention.py.
+#   policy: off | report | prompt | auto
+#     off     no tree walking at all
+#     report  print the footprint, delete nothing            [default, safest]
+#     prompt  print, then ask -- a non-TTY (nohup) session declines and runs on
+#     auto    print, then delete the selection below unattended
+# `keep` always wins over `delete`.
+retention:
+  policy: report
+  delete: [flat_data, scratch, binned_shards]
+  # Both of these now sit on the NVMe, where space is scarcer than on /data.
+  # They are still KEPT because rebuilding them is expensive (a full re-read of
+  # the corpus), not because they are precious -- everything on the hot tier is
+  # reproducible from the cold tier plus config.
+  keep:   [seq_pack, feature_cache]
+
+# --- Versioning: run registry + resolved-config snapshot. ------------------
+# prompt: on a full interactive run, show the current/previous tag and offer to
+# set a new one. Ignored under nohup, where the config value is used as-is.
+versioning:
+  registry: "{base}/versions.json"
+  snapshot: "{results_root}/config_snapshot.json"
+  prompt: true
+
+splits: [train, validation, test]
+split_priority: [test, validation, train]   # highest first
+classes: [bacteria, archaea, eukarya, mitochondria, plastids]
+
+# --- v2.1.2: genus-level sampling -----------------------------------------
+# This is separate from fragment-level train.subsample.
+# global    = v2.1: one species/genus across the complete corpus.
+# per_split = v2.1.2: one species/genus independently in each split.
+# Run: tiara2 genus-balance [--dry-run]
+genus_balance:
+  enabled: true
+  scope: per_split
+  max_species_per_genus: 1
+  candidates: "{base}/metadata/merged/current_available_candidates.tsv"
+  split_assignments: "{base}/index/split_assignments.tsv"
+  taxdump: "{base}/taxonomy"
+  anchors: config/tiara1_anchor_accessions.txt
+  out: "{base}/metadata/merged/genus_balance_selection_{corpus_tag}.tsv"
+  report: "{base}/metadata/merged/genus_balance_report_{corpus_tag}.json"
+  decisions: "{base}/metadata/merged/genus_balance_decisions_{corpus_tag}.tsv"
+
+# v2.1 trains the existing FLAT model on the four classes above.  Bacteria is
+# retained by the data/index tooling for a later version but is not a v2.1
+# training target.  A two-stage classifier remains a future design: no
+# class_hierarchy block is declared here because train/predict/publish do not
+# consume one yet.
+
+# --- Stage toggles: this round drops MAGs entirely (Model A). ---
+mag:
+  include_mags: false          # this round: isolates/reference only
+  # Model B (future) decontamination QC:
+  qc_min_id: 0.90
+  qc_min_cov: 0.50
+  foreign_threshold: 0.05      # discard MAG if foreign_bp/assigned_bp >= this
+
+# --- Deduplication (cross-split only, length-binned). ---
+dedup:
+  # OPTIONAL STAGE, default OFF. mmseqs is the most expensive step in the whole
+  # pipeline (tens of hours, CPU-only, cannot use the 8 GPUs). With it off the
+  # pipeline still runs end-to-end: regroup mirrors the source corpus into
+  # corpus_ready with symlinks instead of filtering it, so nothing is copied.
+  # Turn on with: tiara2 run --set dedup.enabled=true
+  enabled: false
+  within_split: false          # only remove cross-split leakage
+  partition_by: class          # class | global
+  length_mode: discrete        # discrete | geometric
+  discrete_lengths: [1000, 2000, 3000, 5000, 10000]
+  tolerance: 0
+  min_seq_id: 0.95
+  min_cov: 0.95                # double-95, cov-mode 0 (both sides)
+  cov_mode: 0                  # fixed-length bins: symmetric coverage
+  sensitivity: 2.0
+  max_seqs: 100
+  max_accept: 1
+  # Single varlen bin: fragments whose length is not one of discrete_lengths.
+  # Deduped with cov-mode 5 (short-seq coverage) so a short fragment fully
+  # contained in a longer one is still flagged. Length variation is high here
+  # but collision probability is low, so one bin is cheap and complete.
+  varlen_bin: VAR
+  varlen:
+    min_seq_id: 0.95
+    min_cov: 0.95
+    cov_mode: 5                # short-seq coverage (containment aware)
+
+# --- Compute / stability defaults. ---
+resources:
+  threads: 64
+  split_memory_limit: 100G
+  min_available_gb: 280
+  min_free_gb: 500
+  nice_level: 10
+  progress_seconds: 60
+
+mmseqs_bin: /data/shouhanyu/envs/mmseqs2/bin/mmseqs
+
+# --- Stage: acquire (wraps ncbi_pipeline.py). ---
+acquire:
+  enabled: false               # true = run data acquisition; false = source_ready ready
+  script: ncbi_pipeline.py     # bundled at scripts/ncbi_pipeline.py; absolute path also works
+  script_dir: ""               # optional explicit dir to find the script in
+  legacy_config: config.json   # defaults to the json next to the script (scripts/config.json)
+  only_class: ""               # restrict the download step to one class
+  confirm: true                # ask before the long network steps (TTY only)
+
+  # Each acquisition step can be toggled independently. Order is fixed by
+  # STEP_ORDER in stages/acquire.py and can never be reordered from config --
+  # toggling can remove work but cannot produce an invalid sequence.
+  # Every step is run as its own invocation, so a failure names the exact step
+  # and each gets its own log under <work_root>/acquire/logs/.
+  steps:
+    fetch-metadata: true       # pull assembly_summary.* from NCBI (network)
+    build-index:    true       # parse summaries into the unified index
+    apply-qc:       true       # QC flags / contamination screening
+    select:         true       # one-isolate-per-species, weighted quality score
+    plan-downloads: true       # build the download_all.tsv manifest
+    download:       true       # the slow, network-bound step (network)
+    verify:         true       # md5 / composition recheck of what landed
+    export:         true       # emit per-class FASTA
+    split:          true       # train / validation / test assignment
+    organize:       true       # materialise source_ready/<split>/<class>.fasta
+
+# --- Stage: curate (genus-aware genome selection + per-genome depth cap). ---
+# Runs AFTER acquire and BEFORE chop_bin. It moves no sequence data: it reads
+# the candidate-genome table acquire/select produced and writes a PLAN
+# (curation_selection.tsv + curation_report.json) into <work_root>/curate/.
+#
+# WHY THIS STAGE EXISTS
+#   Tiara1 trained on 69 eukaryotic nuclear genomes and still beats v2.0 by
+#   ~28 F1. Its Supplementary Table S3 shows why: eukarya are 0.84% of its
+#   genomes but 31.67% of its 5 kb fragments (~23.7 Mb per genome, ~0.79x),
+#   while bacteria are held to ~1.2 Mb (0.25x) and archaea ~0.46 Mb (0.12x).
+#   Tiara did not pick FEWER genomes -- it capped what each genome contributes
+#   and spent the saved budget on class balance. v2.0 widened the genome set
+#   without either cap, and the length-specific optimal cutoff fell from 1.0 to
+#   0.45-0.65: a class-prior distortion, not a capacity problem.
+#
+# So the stage does two independent things, and BOTH are required:
+#   breadth -- one representative genome per genus (taxid -> genus via taxdump)
+#   depth   -- a hard bp cap per genome, per clade budget
+curate:
+  # breadth  = one genome per genus, no global fragment budget. Maximises
+  #            coverage of the tree. This is our objective, not Tiara's.
+  # balanced = Tiara-style class/clade fragment budget with depth-driven
+  #            dropping. Use when reproducing Tiara's proportions.
+  mode: breadth
+
+  # Restrict the run to part of the tree. Empty = every clade.
+  # We only re-curate eukaryotes right now; prokaryotes and organelles keep
+  # whatever acquire already produced.
+  clades_only:
+    - fungi
+    - alveolata
+    - stramenopiles
+    - other_protist
+    - algae
+    - metazoa_invertebrate
+    - metazoa_vertebrate
+    - land_plant
+    - eukarya_other
+
+  # NCBI ships assembly_summary split by division, so this is a list of globs.
+  # Viral/bacterial/archaeal summaries are intentionally absent: clades_only
+  # would skip them anyway, and not reading them keeps the run fast.
+  input_tables:
+    - "{base}/metadata/assembly_summary/assembly_summary.refseq.fungi.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.refseq.protozoa.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.refseq.plant.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.refseq.invertebrate.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.refseq.vertebrate_mammalian.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.refseq.vertebrate_other.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.genbank.fungi.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.genbank.protozoa.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.genbank.plant.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.genbank.invertebrate.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.genbank.vertebrate_mammalian.txt"
+    - "{base}/metadata/assembly_summary/assembly_summary.genbank.vertebrate_other.txt"
+  enabled: true
+  # Report the per-class census before planning, and refuse to freeze a plan
+  # while a download is writing (see census: below). Measuring is always safe;
+  # only FREEZING is gated.
+  census: true
+  census_exact: false          # true = full scan (multi-TB read); false = sample
+  census_sample_mb: 64
+  active_window_s: 900         # a file touched this recently == download live
+  allow_active_download: false # override the freeze guard (know why first)
+
+  # Candidate-genome table. Empty = autodiscover (selected_genomes.tsv,
+  # download_all.tsv, assembly_summary*.txt, ... under base/ and data_home/).
+  input_table: ""
+  out_dir: ""                  # empty = <work_root>/curate
+  # nodes.dmp + names.dmp. Empty = autodiscover under base/metadata etc.
+  # Without it the stage degrades to lineage-string parsing and SAYS SO.
+  taxdump_dir: "{base}/taxonomy"
+
+  # The cleaned Tiara1 originals: the only genomes with a published F1 attached
+  # to them, so no heuristic of ours may drop them. Overrides are recorded in
+  # the report rather than hidden.
+  anchor_file: config/tiara1_anchor_accessions.txt
+  anchors: []
+
+  # --- breadth: how many genomes may one genus contribute? ---
+  # Default is 1. It rises only when the genus is measurably heterogeneous in
+  # something a k-mer model can see. Tiara itself kept 10 Plasmodium and 8
+  # Leishmania out of 69 genomes -- that is real within-genus divergence, not
+  # redundancy, and a flat "1 per genus" rule would delete it.
+  genus:
+    max_per_genus: 4           # hard ceiling regardless of genus size
+    exponent: 0.4              # quota = ceil(n_species ** exponent), capped
+    size_ratio: 3.0            # genome-size spread that earns >1 slot
+    gc_spread_pp: 8.0          # GC spread (percentage points) that earns >1
+
+  # --- depth: the fragment budget and how it is spent ---
+  budget:
+    total_fragments: 40000000  # first-stage training budget
+    eukarya_share: 0.3167      # Tiara S3, verbatim
+    mean_fragment_bp: 4200     # mean of the T6 equal 1/2/3/5/10 kb chop preset
+    min_bp_per_genome: 5000000
+    max_bp_per_genome: 50000000
+    # Never draw more than this fraction of an assembly: the remainder is the
+    # only thing keeping a 3.1 Gb vertebrate from out-producing its whole clade.
+    max_genome_fraction: 0.8
+    census_split: train        # which split the fragment projection reports on
+
+  # Eukaryote budget split. Sums to 1.0. The first five reproduce Tiara1's
+  # microbial-eukaryote scope (62%); the last three are the deliberate widening
+  # of Tiara2's range to multicellular life (38%), which Tiara1 has none of.
+  clade_share:
+    fungi:                0.20
+    alveolata:            0.12
+    stramenopiles:        0.10
+    other_protist:        0.12
+    algae:                0.08
+    metazoa_invertebrate: 0.15
+    land_plant:           0.13
+    metazoa_vertebrate:   0.10
+
+  # Hard floor applied BEFORE any ranking. Deliberately few: each one is a
+  # defect that injects wrong LABELS, not merely a lower-quality genome.
+  quality_gates:
+    allowed_levels: [Complete Genome, Chromosome, Scaffold]
+    require_full_genome_rep: true
+    exclude_flagged: true      # non-empty excluded_from_refseq
+    min_genome_size: 1000000
+    max_genome_size: 0         # 0 = no ceiling (depth is capped separately)
+    max_contig_count: 0        # 0 = off; N50 is absent from assembly_summary,
+                               # contig_count is the available proxy
+
+  # Class priors for the fragment projection. Tiara S3 verbatim -- the only
+  # class balance with a measured F1 attached to it.
+  target_priors:
+    bacteria:     0.42438644
+    eukarya:      0.31667691
+    archaea:      0.17336867
+    plastids:     0.05765327
+    mitochondria: 0.02791470
+
+# --- census: per-class data volume (records / bp / fragments). ---
+# `tiara2 census` answers "how much do I have per class RIGHT NOW" -- the
+# pre-deployment check. `tiara2 status` reports BYTES (15 stat() calls); this
+# reports RECORDS, BASE PAIRS and projected FRAGMENTS, which is the unit the
+# training budget is actually denominated in, plus a live-download guard.
+census:
+  sample_mb: 64                # bytes read per FASTA in fast mode
+  active_window_s: 900
+  watch_dirs: []               # extra dirs to watch for download activity
+
+# --- Stage: chop_bin (chop + length-bin in one pass). ---
+chop:
+  preset: T6-v2c-equal-v3ov    # matches existing 03_04 presets
+  seed: 42
+  workers: 16                  # CPU process pool size
+  bin_into_chop: true          # write fragments straight into length-bin shards
+
+# --- Stage: train (drives vendored tiara.training.* via ModelBackend). ---
+# Reproduces 05_train_v2b: flat -> TF-IDF -> HP search (first/second x k) -> NNet.
+# All code is called with python -m tiara.training.* using the RELATIVE vendored
+# package (tiara2.paths puts the repo on PYTHONPATH); only data dirs are absolute.
+train:
+  enabled: true                 # gate GPU training; flip to true on the box
+  backend: tiara                 # swap here to try a new algorithm (see model_backend.py)
+
+  # Data locations. v2.2.0 deliberately reuses the verified v2.1.3
+  # train+validation bp-balanced corpus so k range is the only experiment
+  # variable; all derived feature/model artifacts receive fresh v2_2_0 paths.
+  # k-only v2.2.0 control: consume the exact v2.1.3 balanced corpus.
+  train_ready: "{fast_base}/corpus_ready_v2_1_3_bpbalanced"
+  flat_data:   "{fast_base}/train_ready_flat_{version_tag}"
+  tfidf_dir:   "{fast_base}/tfidf_{version_tag}"
+  # TRAINING layer: holds hp_*.json and step_timings.jsonl, both of which
+  # depend on subsampling and row caps, so they are keyed on version_tag.
+  log_dir:     "{base}/log/train_{version_tag}"
+  out_models:  "{base}/models_{model_tag}_optimizedHP_gpu"
+  # Shared HP feature cache (parallel builder, one pass per stage over all k,
+  # reused across k and across --resume restarts). Lives on the /data node and
+  # is safe to delete after training -- it is rebuilt on demand.
+  feature_cache: "{fast_base}/feature_cache_{version_tag}"
+  # v2.1.2 set this to true while validation was the raw 98.6%-eukarya split,
+  # which is what actually froze the final weights into a constant predictor.
+  # Validation is now balanced, but it stays OUT of the final fit: it is the
+  # only set left to detect a collapse before publishing.
+  final_include_validation: false
+
+  # Hard quality gates. Breaching one aborts the stage instead of publishing.
+  gates:
+    min_first_mean_f1: 0.85     # best stage-1 candidate must beat this
+    max_val_class_share: 0.75   # HP validation subset may not be one class
+  # 2-bit shared sequence pack (D2). When set, the multi-TB FASTA is read EXACTLY
+  # ONCE into a compact, resumable, shared-across-k pack (~0.8 TiB for first/train
+  # vs ~50 TB of dense fp32 features), and features are streamed from the pack.
+  # The pack itself is the durable resume artifact (per-shard manifest), so an
+  # interrupted run continues without re-reading finished shards. Set to null to
+  # fall back to reading the FASTAs directly on every stage build.
+  seq_pack: "{fast_base}/seqpack_{version_tag}"
+
+  # The external bp-balancing step has already selected train fragments.
+  # Disable legacy row-count subsampling to avoid sampling the train set twice.
+  subsample:
+    enabled: false
+    seed: 42
+    # Class rebalancing applies to TRAIN ONLY. val/test must keep the true
+    # prior or the reported metrics stop meaning anything.
+    #
+    # The corpus is extremely skewed (k=5 train: eukarya 64%, archaea 0.11%),
+    # so a single uniform rate starves the rare classes. Set per-class rates
+    # under train.class_rates to reshape the mix; a class not listed falls back
+    # to the uniform `rate`. Rates only ever DROP rows -- nothing is duplicated.
+    #
+    # Leave class_rates empty to keep the previous behaviour byte-for-byte:
+    # the key is omitted from the cache signature when empty, so the existing
+    # feature cache and packs stay valid.
+    #
+    # Derive a sqrt-balanced set from measured row counts with:
+    #   tiara2 plan-subsample --counts eukarya=26000000,bacteria=10000000,...
+    train:
+      rate: 1.0
+      min_acgt_purity: 0.0
+      min_len: 0
+      class_rates: {}          # e.g. {archaea: 1.0, bacteria: 0.30, eukarya: 0.08}
+    validation: {rate: 1.0,  min_acgt_purity: 0.0, min_len: 0}
+    test:       {rate: 1.0,  min_acgt_purity: 0.0, min_len: 0}
+
+  # k-mer sizes per stage (== 05_train K1 / K2)
+  # v2.2.0 single-factor experiment: model/data/HP settings stay fixed;
+  # only the two k ranges move up by one. k=4 was the weakest v2.1.3
+  # candidate in both stages; k7/k8 test longer local context.
+  k_first:  [5, 6, 7]
+  k_second: [5, 6, 7, 8]
+
+  # TF-IDF (CPU multiprocessing + numba)
+  # ~64-thread box: use most cores; this stage is embarrassingly parallel.
+  tfidf_workers: 56
+  tfidf_batch: 1000
+  tfidf_fragment_len: 5000
+
+  # Dynamic GPU scheduler policy (== 05_train). 8x RTX 4090 (24564 MiB).
+  gpu:
+    hp_gpus: "0,1,2,3,4,5,6,7"
+    hp_maxpar: 20                 # 8 GPUs x 2 tasks/GPU = 16 (scheduler still
+                                 # self-gates by min_free_mib / max_gpu_util).
+                                 # 40 was COUNTER-PRODUCTIVE: 40 shuffling
+                                 # readers thrash one spinning disk, so GPU util
+                                 # sat at 16-55% and not a single candidate
+                                 # finished in ~68 min.
+    hp_max_tasks_per_gpu: 3
+    hp_cpu_threads: 4
+    hp_batch: 512
+    # HP search only RANKS architectures -- the winner is retrained on the FULL
+    # data by train_models_gpu -- so a short budget suffices. 50 epochs over
+    # 41.9M rows (no early stopping) was ~6 h PER candidate x 106 candidates.
+    hp_epochs: 8
+    # Stratified row caps for HP search (0 = use all). Class proportions are
+    # preserved exactly and selection is deterministic, so --resume is stable.
+    # The validation split at rate 1.0 was 104M rows -- 2.5x the TRAIN split and
+    # pure waste for ranking: at 1M rows the per-class F1 standard error is
+    # ~1e-4, far below the gaps between architectures. Keeping these files small
+    # also lets them live in page cache, which removes the random-read storm.
+    hp_max_train_rows: 4000000
+    hp_max_val_rows: 1000000
+    # HP validation subset composition. `equal` takes the same number of rows
+    # per class, so mean-F1 can no longer be won by predicting the majority
+    # class; `proportional` is the old (collapse-friendly) behaviour.
+    hp_val_balance: equal
+    # Class-weighted loss (inverse frequency). Without it the minority classes
+    # contribute almost nothing to the gradient.
+    class_weight: balanced
+    # Any candidate that puts more than this share of its predictions in ONE
+    # class is marked collapsed and can never win the ranking.
+    max_pred_share: 0.98
+    # Same test applied to the FINAL model after fitting. Breaching it raises
+    # and the .pkl is NOT written, so a collapsed pack cannot reach publish.
+    sanity_max_pred_share: 0.98
+    # sequences per featurization block; peak per-worker RAM = hp_feat_chunk x
+    # (4**max_k) x 4 bytes (one k-block held at a time). Fewer workers (below)
+    # means we can afford a BIGGER chunk -> larger sequential writes -> better
+    # disk throughput. At k=7 (second) 4**7=16384: 120000 -> ~7.9 GiB/worker;
+    # x24 workers -> ~189 GiB (safe on ~512 GiB).
+    hp_feat_chunk: 120000
+    # parallel workers for the shared feature-cache builder. NOTE: this stage is
+    # I/O-BOUND, not CPU-bound -- each worker WRITES ~6-7x more feature bytes
+    # than the raw bytes it reads (k=6 -> 4096 dims, k=7 -> 16384 dims), so many
+    # concurrent read+write streams saturate the disk and pile tasks into
+    # uninterruptible-sleep (D) state WITHOUT raising throughput (CPU sits ~80%
+    # idle). Throughput plateaus near ~110-115 MiB/s by ~16 workers, so keep this
+    # modest; 24 clears the D-state pileup while staying at the I/O ceiling.
+    # To go FASTER, reduce I/O VOLUME (fp16 / compressed cache) or put
+    # feature_cache on a separate fast disk from the raw data -- not more workers.
+    hp_feat_workers: 24
+    hp_shared_min_free_mib: 6000
+    hp_shared_max_gpu_util: 82
+    hp_share_launch_delay: 30
+    min_free_mib: 8000
+    max_gpu_util: 30
+    poll_seconds: 10
+    model_gpus: "0,1,2,3,4,5,6,7"
+    model_maxpar: 14             # up to 2 tasks x 8 GPUs; scheduler gates real
+                                 # launches by model_min_free_mib (18 GiB)
+    model_max_tasks_per_gpu: 2
+    model_cpu_threads: 4
+    model_batch: 8192
+    model_epochs: 50
+    # Final models train from feature_cache, not from the FASTA files. The old
+    # in-RAM path needed ~770 GiB for first/k6 and ~760 GiB for second/k7 and
+    # was OOM-killed (exit=-9). Same stratified cap the HP search ranked on.
+    model_max_rows: 4000000
+    # Per-worker RAM budget. A capped subset larger than this is streamed from
+    # a pre-shuffled memmap instead of being held in memory. At 4M rows only
+    # second/k7 (256 GiB) exceeds it; k<=6 stay in RAM.
+    model_ram_budget_gib: 64
+    # Seconds between subset-build progress lines and scheduler heartbeats on
+    # the console. Kept coarse on purpose: up to 7 workers share one stdout, so
+    # a fast tick would interleave into noise. Set 0 to silence.
+    model_progress_secs: 60
+    model_min_free_mib: 18000
+    model_max_gpu_util: 30
+    model_shared_min_free_mib: 10000
+    model_shared_max_gpu_util: 70
+    model_share_launch_delay: 30
+    model_poll_seconds: 15
+
+# --- Stage: publish (closed loop -- copy trained params back INTO the package). ---
+# Code lives at ~/ (this repo); runs/data live at /data. After training finishes,
+# snapshot the trained TF-IDF + NNet params from the /data working tree into the
+# CODE package (tiara/models/...), so the repo carries a runnable copy. Later,
+# when tiara2 is packaged, inference points straight at these in-package params.
+# Replaces the two manual copy_v2_*_to_git.sh scripts (validated + atomic + SHA256).
+publish:
+  enabled: true
+  which: both                  # both | nnet | tfidf
+  backup: true                 # timestamped backup if a destination already exists
+  # SOURCES in /data (produced by the train stage; templated off base/tags)
+  nnet_src:  "{base}/models_{model_tag}_optimizedHP_gpu"
+  # MUST equal train.tfidf_dir. It was templated off {input_tag} (= corpus_tag)
+  # while train wrote to {version_tag}, so with the two tags diverged publish
+  # read a stale or non-existent TF-IDF directory.
+  tfidf_src: "{fast_base}/tfidf_{version_tag}"
+  # DESTINATIONS: RELATIVE code paths -> resolved INSIDE the package (portable).
+  # Classic tiara model layout, so tiara.src.classification can load them and a
+  # future packaged tiara2 can point here directly.
+  nnet_dest:  "tiara/models/nnet-models-{model_tag}"
+  tfidf_dest: "tiara/models/tfidf-models-{model_tag}"
+  # completeness gates (validated BEFORE the destination is touched)
+  # Model counts are derived from len(train.k_first/k_second) by publish;
+  # these mirrors are retained for readability and validated against it.
+  first_count: 3
+  second_count: 4
+  # k-mer folders validated for TF-IDF come from train.k_first / train.k_second
+
+  # --- Run record document (new FINAL step of publish). ---
+  # After the params are published, harvest everything that characterises THIS
+  # version into one record: the data SELECTION strategy (chop / dedup /
+  # subsample), the data VOLUME actually used (records kept per stage+split,
+  # featurized rows x dims, bytes on disk), the TIME each step took, and the
+  # winning architecture per search. Three shapes on purpose:
+  #   out_md    -- read it / archive it next to the model
+  #   out_json  -- diff two versions exactly, field by field
+  #   index_csv -- ONE APPENDED ROW PER RUN, shared across versions, so every
+  #                run lines up in a single table for comparison
+  # Entirely SOFT: this documents a run that already succeeded, so a missing
+  # artifact never fails publish. Training TIME in particular is only recorded
+  # from this version onward (via <train.log_dir>/step_timings.jsonl), so older
+  # runs simply render "-" for wall time instead of erroring.
+  report:
+    enabled: true
+    out_md:    "{results_root}/run_report_{output_tag}.md"
+    out_json:  "{results_root}/run_report_{output_tag}.json"
+    # Deliberately NOT tagged: this file accumulates one row per run so that
+    # v2.0 / v2.1 / ... can be compared side by side. Delete it to start fresh.
+    index_csv: "{base}/runs_index.csv"
+
+# --------------------------------------------------------------------------- #
+# INFER -- the pipeline's last stage, immediately after publish.
+#
+# Publish copies the trained params INTO the package. Inference then runs
+# against exactly that pack, through the same stage contract as every other
+# step: `tiara2 run --only infer`, same resume/dry-run/manifest semantics.
+#
+# DISABLED BY DEFAULT ON PURPOSE. A training run must not start classifying
+# hundreds of GiB just because publish succeeded. The intended workflow is
+# train -> publish -> CHECK THE PACK -> flip enabled to true (or run
+# `tiara2 run --only infer --set infer.enabled=true`).
+# --------------------------------------------------------------------------- #
+infer:
+  enabled: false
+
+  # INPUT INTERFACE. Any mix of: a fasta file, a directory (every fasta in it),
+  # or a glob. Adding a benchmark panel is a config edit, never a code edit.
+  inputs: []
+  # e.g.
+  #   - "{base}/benchmark/fungi_main.fasta"
+  #   - "{base}/benchmark/panels"            # whole directory
+  #   - "{base}/benchmark/*.fna"             # glob
+
+  # OUTPUT INTERFACE. One <name>.tsv + log_<name>.txt per input, plus
+  # inference_summary.json and the resolved inference manifest.
+  out_dir: "{results_root}/predictions_{output_tag}"
+
+  # Model selection. Leave k null to take the best recorded mean_f1 from
+  # training_manifest.json; pin an integer to force one k.
+  k_first: null
+  k_second: null
+
+  # THRESHOLDS. These MUST be re-calibrated per model pack, per task, per panel
+  # and per contig length. v2.1.3's optima landed in 0.938553-0.999999, nowhere
+  # near the 0.65 the original tool shipped. Leaving these null uses the
+  # built-in defaults, which are only good enough for a smoke test.
+  prob_cutoff:
+    first: null
+    second: null
+
+  min_len: 3000                # original tiara default; <1000 is not advised
+  threads: null                # null -> resources.threads
+  batch_records: 512           # records per batched forward pass
+  device: null                 # null -> cuda if available, else cpu
+
+  probabilities: true          # benchmark needs per-class probabilities
+  to_fasta: []                 # mit pla bac arc euk unk pro org all
+  gzip: false
+  verbose: false
+  emit_manifest: true          # record exactly which models answered
+
+  # Reuse a frozen plan instead of re-resolving (byte-reproducible reruns).
+  manifest: null
+
+# --- v2.2.0 baseline freeze before the v2.3.0 hierarchy redesign. --------- #
+baseline_freeze:
+  freeze_dir: "{base}/baselines/v2.2.0"
+  training_splits: [train, validation]
+
+  # benchmark 的原始 FASTA/truth 文件如果不在 results_root 中，需继续补到这里。
+  benchmark_paths: []
+
+  # results_root、train log、pipeline log、发布模型以及 train_ready 已由冻结器
+  # 自动保护；这里额外保护本版本的结果目录，便于人工检查配置。
+  extra_keep_paths:
+    - "/data/shouhanyu/Tiara2/results_v2_2_0"
+
+  # 这些小文件会被复制到 baselines/v2.2.0/metadata，之后即使删除
+  # models/tfidf 源目录，仍保留完整训练和结果来源。
+  extra_metadata_files:
+    - "/data/shouhanyu/Tiara2/results_v2_2_0/config_snapshot.json"
+    - "/data/shouhanyu/Tiara2/results_v2_2_0/run_report_v2_2_0.json"
+    - "/data/shouhanyu/Tiara2/results_v2_2_0/run_report_v2_2_0.md"
+    - "/data/shouhanyu/Tiara2/models_v2.2.0_optimizedHP_gpu/training_manifest.json"
+    - "/ssd/shouhanyu/Tiara2/tfidf_v2_2_0/tfidf_manifest.json"
+    - "/ssd/shouhanyu/Tiara2/corpus_ready_v2_1_3_bpbalanced/sampling_plan.json"
+    - "/ssd/shouhanyu/Tiara2/corpus_ready_v2_1_3_bpbalanced/sampling_report.tsv"
+    - "/data/shouhanyu/Tiara2/runs_index.csv"
+    - "/data/shouhanyu/Tiara2/versions.json"
+
+  # 暂不增加自定义删除根；由 safe/reproducible profile 生成删除计划。
+  extra_delete_paths: []
+
+  # v2.2.0 的不可变预期结果。该区块不会参与训练，只作为冻结后的
+  # regression oracle，用于确认后续重跑没有选错模型或数据。
+  results:
+    status: complete
+    tag: "v2.2.0"
+    version_tag: "v2_2_0"
+    corpus_tag: "v2_1_2"
+    model_tag: "v2.2.0"
+    run_signature: "21ccefbe5d9647a2467d1322d3cd640e07bb03a05ffe555dec617f22d0d1cb40"
+    tfidf_signature: "812dfb27e2bb0731b33efd82"
+    config_sha256: "8767e6381af173559f7f057c96bfe59f9fefcc42dcdf253b859b9dc263b0e79f"
+
+    selected_operating_point:
+      first_k: 7
+      second_k: 7
+      selection_rule: "highest validation mean F1 in each stage"
+      first_validation_mean_f1: 0.9546993831417068
+      second_validation_mean_f1: 0.9835879166946273
+
+    validation_models:
+      first:
+        k5: {mean_f1: 0.9543064701480275, pred_share: 0.3446366262441368, hidden_1: 2048, hidden_2: 2048, lr: 0.001, dropout: 0.2, epochs: 50}
+        k6: {mean_f1: 0.9538056533653161, pred_share: 0.3449476604507493, hidden_1: 2048, hidden_2: 2048, lr: 0.0001, dropout: 0.2, epochs: 50}
+        k7: {mean_f1: 0.9546993831417068, pred_share: 0.3509288124928498, hidden_1: 2048, hidden_2: 1024, lr: 0.001, dropout: 0.2, epochs: 50}
+      second:
+        k5: {mean_f1: 0.9810951691733351, pred_share: 0.6065027258108797, hidden_1: 128, hidden_2: 128, lr: 0.001, dropout: 0.2, epochs: 50}
+        k6: {mean_f1: 0.9822985953497683, pred_share: 0.6046593716907872, hidden_1: 128, hidden_2: null, lr: 0.01, dropout: 0.5, epochs: 50}
+        k7: {mean_f1: 0.9835879166946273, pred_share: 0.6019531709612895, hidden_1: 128, hidden_2: 128, lr: 0.01, dropout: 0.5, epochs: 50}
+        k8: {mean_f1: 0.9821945812364112, pred_share: 0.6021884927638546, hidden_1: 128, hidden_2: 64, lr: 0.0001, dropout: 0.2, epochs: 50}
+
+    external_benchmark:
+      four_task_mean_f1_percent: 84.5975
+      delta_vs_v2_1_3_pp: 0.5175
+      delta_vs_tiara1_pp: 2.405
+      note: "四个单项 F1 以 results_v2_2_0 中的原始 benchmark 文件为准"
+
+    training_input:
+      root: "/ssd/shouhanyu/Tiara2/corpus_ready_v2_1_3_bpbalanced"
+      train_bytes: 10620171508
+      validation_bytes: 1486328503
+      first_train_records: 2640961
+      first_validation_records: 368543
+      second_train_records: 222226
+      second_validation_records: 30714
+
+    resource_record:
+      recorded_wall_seconds: 23083.414
+      hp_gpu_seconds: 272251.07686424255
+      tfidf_seconds: 34.16927218437195
+      feature_cache_bytes: 347009408640
+      published_nnet_files: 9
+      published_nnet_bytes: 263028001
+      published_tfidf_files: 16
+      published_tfidf_bytes: 437701

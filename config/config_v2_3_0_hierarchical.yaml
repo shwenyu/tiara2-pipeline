@@ -1,0 +1,49 @@
+# Tiara2 v2.3.0: v2.1.3 sampling is frozen; only labels/model change.
+hierarchy:
+  version: "2.3.0"             # reserved: 2.3.1=virus, 2.3.2=calibration
+  train_ready: "/ssd/shouhanyu/Tiara2/corpus_ready_v2_1_3_bpbalanced"
+  metadata_tsv: "/data/shouhanyu/Tiara2_v2_3_0/metadata/hierarchical_labels.tsv"
+  feature_root: "/ssd/shouhanyu/Tiara2_v2_3_0/cache/hierarchy_k7"
+  model_root: "/data/shouhanyu/Tiara2_v2_3_0/models/v2.3.0"
+  tfidf: "tiara/models/tfidf-models-v2.2.0/k7-first-stage"
+  k: 7
+  unknown_euk_policy: error
+  reuse_exact_v213_fragments: true
+  resample_nonvirus: false
+  split:
+    cellular_group: species_taxid
+    organelle_group: host_species_taxid
+    virus_group: virus_cluster_id
+    seed: 42
+  class_priors:
+    bacteria: 0.42438644
+    euk_nuclear: 0.31667691
+    archaea: 0.17336867
+    plastid: 0.05765327
+    mitochondria: 0.02791470
+  euk_weights:
+    fungi: 0.20
+    metazoa_invertebrate: 0.15
+    land_plant: 0.13
+    alveolata: 0.12
+    other_protist: 0.12
+    stramenopiles: 0.10
+    algae: 0.08
+    metazoa_vertebrate: 0.10
+  model:
+    hidden: [2048, 1024]
+    dropout: 0.2
+    loss_weights: {root: 1.0, euk: 1.0, prok: 0.5, organelle: 0.5}
+    epochs: 50
+    batch_size: 1024
+    learning_rate: 0.001
+  minor_versions:
+    "2.3.1":
+      virus_enabled: true
+      virus_dir: "/data/shouhanyu/Tiara2/evaluation"
+      virus_ratio_search: [0.05, 0.10, 0.15]
+      preserve_nonvirus_ratios: true
+    "2.3.2":
+      calibration_enabled: true
+      method: temperature_scaling
+      branch_thresholds: {}

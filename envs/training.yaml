@@ -1,0 +1,37 @@
+# Reproducible TRAINING environment (heavy ML stack).
+#
+# The pipeline FRAMEWORK (`pip install -e .`) is pure-Python and only needs
+# PyYAML -- it deliberately does NOT install numba/torch. Training, however,
+# runs `python -m tiara.training.*` which imports torch/numba/skorch/etc., and
+# those pins only support Python 3.10-3.11. This conda env provides them.
+#
+# Create + use:
+#   conda env create -f envs/training.yaml
+#   conda activate tiara2-train
+#   cd ~/tiara2_pipeline && pip install -e .     # also add the framework/CLI here
+#   tiara2 run --only train --set train.enabled=true
+#
+# GPU note: the torch below is the default (CPU/generic) wheel. For a specific
+# CUDA build, install torch separately, e.g.:
+#   pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+# (or just reuse the existing /data/shouhanyu/envs/tiara2 env, which already has
+#  a GPU-matched torch installed).
+name: tiara2-train
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  # scientific stack (pins match tiara/requirements.txt)
+  - numpy=1.26.4
+  - numba=0.58.1
+  - llvmlite=0.41.1
+  - scikit-learn=1.5.1
+  - biopython=1.83
+  - joblib=1.4.2
+  - tqdm=4.66.5
+  - pyyaml
+  - pip
+  - pip:
+      - torch==2.4.1
+      - skorch==1.0.0

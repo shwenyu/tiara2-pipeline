@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# Environments
+.venv/
+venv/
+env/
+conda-env/
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.out
+nohup.out
+logs/
+tmp/
+cache/
+
+# Biological data
+data/
+datasets/
+raw_data/
+processed_data/
+*.fasta
+*.fa
+*.fna
+*.fastq
+*.fq
+*.fastq.gz
+*.fq.gz
+*.gff
+*.gff3
+
+# Models and large artifacts
+models/
+checkpoints/
+outputs/
+results/
+benchmark_results/
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.joblib
+*.npz
+*.npy
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.gz
+
+# Secrets
+*.pem
+*.key
+credentials*
+secrets*

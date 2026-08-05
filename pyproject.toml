@@ -1,0 +1,38 @@
+# Repo-root pyproject for the Tiara2 PIPELINE (framework + CLI only).
+#
+# This package is PURE PYTHON and depends only on PyYAML. Install it anywhere
+# (any Python >=3.10, including your base env):
+#
+#   cd ~/tiara2_pipeline        # wherever you unzipped this repo
+#   pip install -e .
+#   tiara2 run --dry-run
+#
+# It does NOT bundle or pip-install the original tiara model package, and it
+# does NOT pin torch / numba / sklearn / etc. The `train` stage shells out to
+# `python -m tiara.training.*` with the repo root prepended to PYTHONPATH
+# (see tiara2/paths.py), so the training scripts under ./tiara/ run against
+# whatever scientific stack already exists in your training env (the tiara2
+# conda env that already has torch/numba/biopython/...). Nothing here touches
+# or re-pins that env, so there are no dependency conflicts.
+
+[build-system]
+requires = ["setuptools>=68,<81", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiara2-pipeline"
+version = "0.2.0"
+description = "Tiara2 corpus + training pipeline with bp-balanced fragment sampling"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6",
+]
+
+[project.scripts]
+tiara2 = "tiara2.cli:main"
+
+[tool.setuptools.packages.find]
+# Only the pipeline framework is an installable package. The ./tiara/ training
+# scripts are resolved via PYTHONPATH at runtime, NOT pip-installed, so their
+# heavy deps (torch/numba/...) are never re-pinned here.
+include = ["tiara2*"]

@@ -1,0 +1,14 @@
+# Pinned environment for reproducibility. Recreate with:
+#   conda env create -f envs/environment.yaml
+#   conda activate tiara2-pipeline
+name: tiara2-pipeline
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - snakemake-minimal>=8
+  - mmseqs2=15.6f452
+  - pyyaml
+  - pandas
+  - pytest

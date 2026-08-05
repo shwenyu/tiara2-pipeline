@@ -1,0 +1,85 @@
+# Tiara1 anchor genomes -- the eukaryotic nuclear assemblies of
+# Supplementary Table S1, deduplicated.
+#
+# WHY THESE ARE PINNED
+#   This is the only genome set with a published F1 attached to it: 69 S1
+#   rows -> 66 distinct assemblies trained a classifier that still beats
+#   our v2.0 by ~28 F1 points. No heuristic of ours may drop them. If a
+#   quality gate would reject one, curate keeps it anyway and records the
+#   override in curation_report.json -- that is evidence about the GATE.
+#
+# S1 DATA ERRORS ALREADY CORRECTED HERE (row count 69 -> 66 assemblies)
+#   GCA_000149225.1 listed under 2 names: Lachancea kluyveri / Saccharomyces kluyveri
+#   GCA_900632045.1 listed under 2 names: Plasmodium falciparum / Plasmodium gaboni
+#   GCA_001430745.1 listed under 2 names: Auxenochlorella pyrenoidosa / Chlorella pyrenoidosa
+#
+# Format: one accession per line; text after # is ignored.
+# Version suffixes are matched loosely, so GCA_000818905 also matches
+# GCA_000818905.1 (S1 prints that one without its version).
+
+GCA_000981445.1      # Babesia bigemina  [Alveolata]
+GCA_000691945.2      # Babesia microti  [Alveolata]
+GCA_000165345.1      # Cryptosporidium parvum  [Alveolata]
+GCA_000499545.1      # Eimeria tenella  [Alveolata]
+GCA_001272975.2      # Laurentiella sp.  [Alveolata]
+GCA_000208865.2      # Neospora caninum  [Alveolata]
+GCA_900044335.1      # Plasmodium berghei  [Alveolata]
+GCA_001680005.1      # Plasmodium coatneyi  [Alveolata]
+GCA_900180395.1      # Plasmodium cynomolgi  [Alveolata]
+GCA_900632045.1      # Plasmodium falciparum  [Alveolata]
+GCA_900162085.1      # Plasmodium knowlesi  [Alveolata]
+GCA_000006355.1      # Plasmodium knowlesi strain H  [Alveolata]
+GCA_001601855.1      # Plasmodium reichenowi  [Alveolata]
+GCA_000002415.2      # Plasmodium vivax  [Alveolata]
+GCA_900002385.2      # Plasmodium yoelii  [Alveolata]
+GCA_000003225.1      # Theileria annulata  [Alveolata]
+GCA_002189625.1      # Theileria equi  [Alveolata]
+GCA_000740895.1      # Theileria orientalis  [Alveolata]
+GCA_000165365.1      # Theileria parva  [Alveolata]
+GCA_013099955.1      # Toxoplasma gondii  [Alveolata]
+GCA_008729055.1      # Pyropia haitanensis  [Bangiophyceae]
+GCA_009829735.1      # Pyropia yezoensis  [Bangiophyceae]
+GCA_001430745.1      # Auxenochlorella pyrenoidosa  [Chlorophyta]
+GCA_001662365.1      # Chlamydomonas applanata  [Chlorophyta]
+GCA_000812005.1      # Coccomyxa sp.  [Chlorophyta]
+GCA_000690575.1      # Helicosporidium sp.  [Chlorophyta]
+GCA_000214015.2      # Ostreococcus tauri  [Chlorophyta]
+GCA_000818905        # Trebouxia gelatinosa  [Chlorophyta]
+GCA_000331325.2      # Crithidia fasciculata  [Euglenozoa]
+GCA_003304975.1      # Leishmania braziliensis  [Euglenozoa]
+GCA_003719575.1      # Leishmania donovani  [Euglenozoa]
+GCA_003020905.1      # Leishmania infantum  [Euglenozoa]
+GCA_000002725.2      # Leishmania major  [Euglenozoa]
+GCA_000234665.4      # Leishmania mexicana  [Euglenozoa]
+GCA_000755165.1      # Leishmania panamensis  [Euglenozoa]
+GCA_001403675.1      # Leishmania peruviana  [Euglenozoa]
+GCA_000409445.2      # Leishmania sp.  [Euglenozoa]
+GCA_000002445.1      # Trypanosoma brucei  [Euglenozoa]
+GCA_000004695.1      # Dictyostelium discoideum  [Evosea]
+GCA_000269785.2      # Aspergillus oryzae  [Fungi]
+GCA_000026945.1      # Candida dubliniensis  [Fungi]
+GCA_000277815.3      # Encephalitozoon hellem  [Fungi]
+GCA_000146465.1      # Encephalitozoon intestinalis  [Fungi]
+GCA_000235365.1      # Eremothecium cymbalariae  [Fungi]
+GCA_001548555.1      # Eremothecium sinecaudum  [Fungi]
+GCA_900044135.1      # Fusarium graminearum  [Fungi]
+GCA_000304475.1      # Kazachstania africana  [Fungi]
+GCA_001854445.2      # Kluyveromyces marxianus  [Fungi]
+GCA_000149225.1      # Lachancea kluyveri  [Fungi]
+GCA_003086655.1      # Saccharomyces cerevisiae  [Fungi]
+GCA_000002945.2      # Schizosaccharomyces pombe  [Fungi]
+GCA_001010845.1      # Sporisorium scitamineum  [Fungi]
+GCA_000226095.1      # Thermothelomyces thermophilus  [Fungi]
+GCA_000226115.1      # Thermothielavioides terrestris  [Fungi]
+GCA_003013175.1      # Torulaspora delbrueckii  [Fungi]
+GCA_000818155.1      # Valsa mali  [Fungi]
+GCA_001761485.1      # Yarrowia lipolytica  [Fungi]
+GCA_000026365.1      # Zygosaccharomyces rouxii  [Fungi]
+GCA_002937425.1      # Zymoseptoria tritici  [Fungi]
+GCA_000327385.1      # Lottia gigantea  [Metazoa]
+GCA_000209535.1      # Oikopleura dioica  [Metazoa]
+GCA_000186865.1      # Aureococcus anophagefferens  [Stramenopiles]
+GCA_000310025.1      # Ectocarpus siliculosus  [Stramenopiles]
+GCA_002838785.1      # Nannochloropsis gaditana  [Stramenopiles]
+GCA_000150955.2      # Phaeodactylum tricornutum  [Stramenopiles]
+GCA_000149405.2      # Thalassiosira pseudonana  [Stramenopiles]

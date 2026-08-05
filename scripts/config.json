@@ -1,0 +1,199 @@
+{
+  "comment": "Tiara2 数据管线配置。所有路径都在服务器上；改这里即可全局生效。",
+  "storage": {
+    "primary_root": "/data/shouhanyu/Tiara2",
+    "backup_root": "/backup/shouhanyu/Tiara2",
+    "enable_backup": false
+  },
+  "asm_sources": [
+    "refseq",
+    "genbank"
+  ],
+  "__asm_sources_note": "同时读取 RefSeq(GCF) 与 GenBank(GCA)；完整 accession 精确去重，paired identical 优先保留 GCF，paired different 与 GenBank-only GCA 保留。",
+  "external_sources": {
+    "jgi": {
+      "enabled": true,
+      "workbooks": [
+        "/data/shouhanyu/Tiara2/metadata/jgi/jgi_gold_part1.xlsx",
+        "/data/shouhanyu/Tiara2/metadata/jgi/jgi_gold_part2.xlsx"
+      ],
+      "force_reimport": false,
+      "metadata_path": "",
+      "delimiter": "auto",
+      "column_map": {},
+      "model_a": "Genome Analysis (Isolate) + Whole Genome Sequencing; exclude MAG/virus/organelle projects",
+      "model_b": "Model A + separately QC-qualified HQ MAG; jgi_mag_candidates.tsv is never auto-merged",
+      "dataset_role": "train_candidate",
+      "download_policy": "direct_url_only",
+      "mag_candidates_policy": "quarantine_only",
+      "pending_manifest": "catalog/manifests/jgi_download_pending.tsv"
+    }
+  },
+  "reports_dir": "/data/ncbi_reports_all",
+  "groups": [
+    {
+      "group": "bacteria",
+      "klass": "bacteria",
+      "kind": "asm"
+    },
+    {
+      "group": "archaea",
+      "klass": "archaea",
+      "kind": "asm"
+    },
+    {
+      "group": "fungi",
+      "klass": "nuclear_euk",
+      "kind": "asm"
+    },
+    {
+      "group": "protozoa",
+      "klass": "nuclear_euk",
+      "kind": "asm"
+    },
+    {
+      "group": "plant",
+      "klass": "nuclear_euk",
+      "kind": "asm"
+    },
+    {
+      "group": "invertebrate",
+      "klass": "nuclear_euk",
+      "kind": "asm"
+    },
+    {
+      "group": "vertebrate_other",
+      "klass": "nuclear_euk",
+      "kind": "asm"
+    },
+    {
+      "group": "vertebrate_mammalian",
+      "klass": "nuclear_euk",
+      "kind": "asm"
+    },
+    {
+      "group": "mitochondrion",
+      "klass": "mitochondria",
+      "kind": "organelle"
+    },
+    {
+      "group": "plastid",
+      "klass": "plastid",
+      "kind": "organelle"
+    },
+    {
+      "group": "jgi_eukaryota",
+      "klass": "nuclear_euk",
+      "kind": "external",
+      "label": "euk",
+      "supergroup": "JGI-Eukaryota"
+    },
+    {
+      "group": "viral",
+      "klass": "virus",
+      "kind": "asm",
+      "dataset_role": "test_only"
+    }
+  ],
+  "filters": {
+    "require_latest": true,
+    "require_full": true,
+    "exclude_mag": false,
+    "fetch_before": "",
+    "fetch_after": "",
+    "drop_excluded_from_refseq_anomalies": true,
+    "mag_policy": "test_only"
+  },
+  "select": {
+    "one_isolate_per_species": true,
+    "one_mag_per_species": true,
+    "feature_metadata_path": "/data/shouhanyu/Tiara2/metadata/assembly_features.tsv",
+    "unknown_species_policy": "unique_entity",
+    "weights": {
+      "log10_n50": 12.0,
+      "refseq": 8.0,
+      "third_generation": 6.0,
+      "reference_category": 4.0,
+      "type_material": 2.0,
+      "assembly_level": 2.0,
+      "qc_score": 1.0
+    },
+    "per_class_cap": {
+      "bacteria": 0,
+      "archaea": 0,
+      "nuclear_euk": 0,
+      "mitochondria": 0,
+      "plastid": 0,
+      "virus": 0
+    }
+  },
+  "split": {
+    "test_pct": 20,
+    "seed": 42
+  },
+  "organelle": {
+    "fetch_with_metadata": true,
+    "max_per_species": 5,
+    "min_len": 5000
+  },
+  "qc": {
+    "size_low_ratio": 0.5,
+    "size_high_ratio": 2.0,
+    "contamination_frac_quarantine": 0.05
+  },
+  "download": {
+    "concurrency": 8,
+    "max_retries": 1,
+    "retry_delay": 2,
+    "timeout": 300,
+    "summary_max_age_days": 7,
+    "status_flush_every": 500,
+    "size_aware": true,
+    "enable_ftp_fallback": false,
+    "small_max_mb": 20,
+    "medium_max_mb": 200,
+    "small_concurrency": 20,
+    "medium_concurrency": 8,
+    "large_concurrency": 6,
+    "small_timeout": 90,
+    "medium_timeout": 180,
+    "large_timeout": 300,
+    "small_connections_per_file": 1,
+    "medium_connections_per_file": 1,
+    "large_connections_per_file": 2
+  },
+  "virus": {
+    "enabled": true,
+    "include_assembly_summary": true,
+    "include_genome_report_segments": true,
+    "genome_report_url": "https://ftp.ncbi.nlm.nih.gov/genomes/GENOME_REPORTS/viruses.txt",
+    "min_len": 1000,
+    "selection_mode": "high_quality_test",
+    "allowed_genome_types": [
+      "dsDNA",
+      "ssDNA"
+    ],
+    "require_taxid": true,
+    "prefer_refseq": true,
+    "one_genome_per_species": true,
+    "max_genomes": 20000,
+    "max_n_fraction": 0.05,
+    "max_other_fraction": 0.01,
+    "keep_all_segments_of_selected_genome": true
+  },
+  "ncbi_api": {
+    "enabled": true,
+    "api_key_env": "NCBI_API_KEY",
+    "efetch_url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+    "tool": "tiara2_pipeline",
+    "email_env": "NCBI_EMAIL",
+    "max_requests_per_second": 8.0,
+    "batch_size": 100,
+    "workers": 4,
+    "connect_timeout": 20,
+    "read_timeout": 180,
+    "max_retries": 3,
+    "retry_delay": 3,
+    "fallback_to_sviewer": true
+  }
+}
