@@ -43,7 +43,6 @@ processed_data/
 *.gff3
 
 # Models and large artifacts
-models/
 checkpoints/
 outputs/
 results/
