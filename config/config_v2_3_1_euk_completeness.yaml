@@ -1,0 +1,78 @@
+# Tiara2 v2.3.1 — Euk completeness only.
+version: "2.3.1"
+primary_variable: euk_data_completeness
+
+frozen_base:
+  train_ready: "/ssd/shouhanyu/Tiara2/corpus_ready_v2_1_3_bpbalanced"
+  metadata_v230: "/data/shouhanyu/Tiara2_v2_3_0/metadata/hierarchical_labels.tsv"
+  features_v230: "/ssd/shouhanyu/Tiara2_v2_3_0/cache/hierarchy_k7"
+  tfidf_k7: "tiara/models/tfidf-models-v2.2.0/k7-first-stage"
+  freeze_manifest: "/data/shouhanyu/Tiara2_v2_3_1/manifests/base_freeze_manifest.json"
+  verify_mode: full
+
+metadata:
+  source_index: "/data/shouhanyu/Tiara2/index/all_entities.tsv"
+  existing_fragment_pool_metadata: "/data/shouhanyu/Tiara2_v2_3_1/metadata/existing_fragment_pool.tsv"
+  taxdump_dir: "/data/shouhanyu/Tiara2/taxonomy/taxdump"
+  manual_overrides: "/data/shouhanyu/Tiara2_v2_3_1/metadata/euk_group_overrides.tsv"
+  audit_out: "/data/shouhanyu/Tiara2_v2_3_1/audit"
+  unresolved_policy: error
+
+euk_delta:
+  candidate_root: "/data/shouhanyu/Tiara2_v2_3_1/candidate_fragments"
+  candidate_metadata: "/data/shouhanyu/Tiara2_v2_3_1/metadata/candidate_fragments.tsv"
+  output_root: "/data/shouhanyu/Tiara2_v2_3_1/euk_delta"
+  min_per_leaf_split: 1
+  candidate_contract: same_v2c_chop_qc_dedup
+  dedup:
+    record_id_to_base: reject
+    sequence_to_base: blake2b_128
+    species_taxid_cross_split: reject
+    split_group_id_cross_split: reject
+    duplicate_cluster_id_cross_split: reject
+
+features:
+  output_root: "/ssd/shouhanyu/Tiara2_v2_3_1/cache/hierarchy_k7_composite"
+  base_feature_policy: reuse_read_only
+  base_label_policy: rebuild_euk_i64_only
+  delta_feature_policy: featurize_new_rows_only
+  k: 7
+  chunk_size: 2048
+
+# Locked to v2.3.0. train.py rejects any drift for a v2.3.1 manifest.
+model:
+  hidden: [2048, 1024]
+  dropout: 0.2
+  optimizer: AdamW
+  learning_rate: 0.001
+  epochs: 50
+  batch_size: 1024
+  sampler: v2.3.0_root_weighted_random_sampler
+  checkpoint_selector: root_macro_f1
+  label_smoothing: 0.0
+  early_stopping: false
+  seed: 42
+  output_root: "/data/shouhanyu/Tiara2_v2_3_1/models/v2.3.1"
+
+evaluation:
+  truth_tsv: "/data/shouhanyu/Tiara2_v2_3_1/evaluation/truth.tsv"
+  predictions_tsv: "/data/shouhanyu/Tiara2_v2_3_1/evaluation/predictions.tsv"
+  output_json: "/data/shouhanyu/Tiara2_v2_3_1/evaluation/evaluation.json"
+  canonical_length_bp: [1000, 10000]
+  baseline_benchmark_json: "/data/shouhanyu/Tiara2_v2_3_0/evaluation/canonical_benchmark.json"
+  current_benchmark_json: "/data/shouhanyu/Tiara2_v2_3_1/evaluation/canonical_benchmark.json"
+
+gates:
+  all_eight_euk_leaves_train_validation_nonzero: true
+  unresolved_euk_rows: 0
+  cross_split_overlap: 0
+  min_leaf_recall: 0.05
+  max_canonical_regression_pp: 0.20
+  output_json: "/data/shouhanyu/Tiara2_v2_3_1/evaluation/acceptance_gates.json"
+
+publish:
+  destination: "/data/shouhanyu/Tiara2/releases/v2.3.1"
+  current_link: "/data/shouhanyu/Tiara2/releases/current"
+  require_all_gates: true
+  atomic: true
+  backup_existing: true

@@ -1,0 +1,76 @@
+"""Train from legacy or v2.3.1 composite memmap shards."""
+from __future__ import annotations
+import argparse,bisect,json,random
+from pathlib import Path
+import numpy as np,torch
+from torch.utils.data import Dataset,DataLoader,WeightedRandomSampler
+from .schema import HierarchySchema
+from .model import HierarchicalClassifier,MaskedHierarchicalLoss
+HEADS=("root","euk","prok","organelle")
+CONTRACT={"epochs":50,"batch":1024,"lr":1e-3,"hidden":(2048,1024),"dropout":.2}
+class Shard(Dataset):
+ def __init__(self,s):
+  self.n=int(s["rows"]);self.d=int(s["dim"]);self.name=s.get("name","");files=s["files"]
+  if self.n<=0:raise ValueError("empty shard must be omitted")
+  self.X=np.memmap(files["X"],"float32","r",shape=(self.n,self.d));self.y={h:np.memmap(files[h],"int64","r",shape=(self.n,)) for h in HEADS}
+ def __len__(self):return self.n
+ def __getitem__(self,i):return torch.from_numpy(np.asarray(self.X[i]).copy()),{h:torch.tensor(int(v[i])) for h,v in self.y.items()}
+class Composite(Dataset):
+ def __init__(self,shards):
+  self.shards=[Shard(s) for s in shards if int(s["rows"])>0];self.ends=[];total=0
+  if not self.shards:raise ValueError("no feature shards")
+  dims={s.d for s in self.shards}
+  if len(dims)!=1:raise ValueError("shard dimensions differ")
+  self.d=dims.pop()
+  for s in self.shards:total+=len(s);self.ends.append(total)
+  self.n=total
+ def __len__(self):return self.n
+ def __getitem__(self,i):
+  j=bisect.bisect_right(self.ends,i);start=0 if j==0 else self.ends[j-1];return self.shards[j][i-start]
+ def targets(self,h):return np.concatenate([np.asarray(s.y[h]) for s in self.shards])
+def _legacy(root,split,m):
+ def p(h):
+  fallback=root/split/("X.f32" if h=="X" else f"{h}.i64");v=Path(m.get("files",{}).get(h,fallback))
+  if v.is_file():return str(v.resolve())
+  if not v.is_absolute() and (root/v).is_file():return str((root/v).resolve())
+  raise FileNotFoundError(v)
+ return {"name":"legacy","rows":m["rows"],"dim":m["dim"],"files":{h:p(h) for h in ("X",*HEADS)}}
+def load_feature_set(path):
+ root=Path(path);cp=root/"composite_features.json";lp=root/"hierarchy_features.json"
+ if cp.is_file():m=json.loads(cp.read_text());tr=m["splits"]["train"]["shards"];va=m["splits"]["validation"]["shards"]
+ elif lp.is_file():m=json.loads(lp.read_text());tr=[_legacy(root,"train",m["splits"]["train"])];va=[_legacy(root,"validation",m["splits"]["validation"])]
+ else:raise FileNotFoundError("feature manifest missing")
+ sc=HierarchySchema.from_dict(m["schema"]);return m,sc,Composite(tr),Composite(va)
+def _metric(matrix,names):
+ vals=[];per={}
+ for i,name in enumerate(names):
+  tp=int(matrix[i,i]);fp=int(matrix[:,i].sum()-tp);fn=int(matrix[i,:].sum()-tp);support=int(matrix[i,:].sum());p=tp/(tp+fp) if tp+fp else 0.;r=tp/(tp+fn) if tp+fn else 0.;f=2*p*r/(p+r) if p+r else 0.;vals.append(f);per[name]={"precision":p,"recall":r,"f1":f,"support":support}
+ total=int(matrix.sum());return {"macro_f1":sum(vals)/len(vals),"accuracy":float(np.trace(matrix)/total) if total else 0.,"records":total,"per_class":per,"confusion_matrix":matrix.tolist(),"class_order":list(names)}
+def evaluate_all(model,loader,dev,sc):
+ mats={h:np.zeros((len(sc.classes(h)),len(sc.classes(h))),dtype=np.int64) for h in HEADS};model.eval()
+ with torch.inference_mode():
+  for x,y in loader:
+   logits=model(x.to(dev))
+   for h in HEADS:
+    truth=y[h].numpy();pred=logits[h].argmax(1).cpu().numpy();mask=truth>=0
+    if np.any(mask):np.add.at(mats[h],(truth[mask],pred[mask]),1)
+ return {h:_metric(mats[h],sc.classes(h)) for h in HEADS}
+def _enforce(sc,epochs,batch,lr,hidden,dropout):
+ if sc.profile.version!="2.3.1":return
+ actual={"epochs":epochs,"batch":batch,"lr":lr,"hidden":tuple(hidden),"dropout":dropout};bad={k:{"expected":v,"actual":actual[k]} for k,v in CONTRACT.items() if actual[k]!=v}
+ if bad:raise ValueError("v2.3.1 training contract drift: "+json.dumps(bad,sort_keys=True))
+def train(features,out,epochs=50,batch=1024,lr=1e-3,hidden=(2048,1024),dropout=.2,device=None,seed=42,weights=None):
+ random.seed(seed);np.random.seed(seed);torch.manual_seed(seed);fm,sc,tr,va=load_feature_set(features);hidden=tuple(map(int,hidden));_enforce(sc,epochs,batch,lr,hidden,dropout);roots=tr.targets("root");cnt=np.bincount(roots,minlength=len(sc.profile.root));sw=1/np.maximum(cnt,1);sampler=WeightedRandomSampler(torch.as_tensor(sw[roots],dtype=torch.double),len(roots),replacement=True);dev=torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"));dl=DataLoader(tr,batch_size=batch,sampler=sampler,num_workers=0,pin_memory=dev.type=="cuda");vl=DataLoader(va,batch_size=batch,shuffle=False,num_workers=0,pin_memory=dev.type=="cuda");sizes={h:len(sc.classes(h)) for h in HEADS};model=HierarchicalClassifier(tr.d,sizes,hidden,dropout).to(dev);lossfn=MaskedHierarchicalLoss(sc.index("root"),weights);opt=torch.optim.AdamW(model.parameters(),lr=lr);scaler=torch.amp.GradScaler("cuda",enabled=dev.type=="cuda");best=-1.;out=Path(out);out.mkdir(parents=True,exist_ok=True);history=[]
+ for ep in range(1,epochs+1):
+  model.train();total=0.
+  for x,y in dl:
+   x=x.to(dev);y={k:v.to(dev) for k,v in y.items()};opt.zero_grad(set_to_none=True)
+   with torch.amp.autocast("cuda",enabled=dev.type=="cuda"):loss,_=lossfn(model(x),y)
+   scaler.scale(loss).backward();scaler.step(opt);scaler.update();total+=float(loss.detach())*len(x)
+  metrics=evaluate_all(model,vl,dev,sc);row={"epoch":ep,"loss":total/len(tr),**{f"{h}_macro_f1":metrics[h]["macro_f1"] for h in HEADS}};history.append(row);print(row,flush=True);score=metrics["root"]["macro_f1"]
+  if score>best:
+   best=score;torch.save({"state_dict":model.state_dict(),"schema":sc.to_dict(),"model":{"dim_in":tr.d,"head_sizes":sizes,"hidden":list(hidden),"dropout":dropout},"feature_manifest":fm,"best_root_macro_f1":best,"best_validation_metrics":metrics,"checkpoint_selector":"root_macro_f1","version":sc.profile.version},out/"hierarchical_model.pt")
+ (out/"training_history.json").write_text(json.dumps(history,indent=2)+"\n");return best
+def main(argv=None):
+ p=argparse.ArgumentParser();p.add_argument("--features",required=True);p.add_argument("--out",required=True);p.add_argument("--epochs",type=int,default=50);p.add_argument("--batch",type=int,default=1024);p.add_argument("--lr",type=float,default=1e-3);p.add_argument("--hidden",default="2048,1024");p.add_argument("--dropout",type=float,default=.2);p.add_argument("--device");a=p.parse_args(argv);train(a.features,a.out,a.epochs,a.batch,a.lr,tuple(map(int,a.hidden.split(','))),a.dropout,a.device)
+if __name__=="__main__":main()

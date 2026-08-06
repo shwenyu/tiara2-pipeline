@@ -14,6 +14,7 @@ sharded across DDP ranks, so class balancing is retained in multi-GPU runs.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import math
 import os
@@ -37,6 +38,7 @@ except ImportError:  # allow copying this file and running it directly
     from tiara.hierarchical.model import HierarchicalClassifier, MaskedHierarchicalLoss
 
 HEADS = ("root", "euk", "prok", "organelle")
+CONTRACT = {"epochs": 50, "batch": 1024, "lr": 1e-3, "hidden": (2048, 1024), "dropout": 0.2}
 _STOP = False
 
 
@@ -45,26 +47,21 @@ def _stop_handler(_sig, _frame):
     _STOP = True
 
 
-class MemmapDataset(Dataset):
-    """Worker-safe lazy memmap dataset; no giant arrays are pickled."""
+class Shard(Dataset):
+    """Worker-safe lazy memmap shard for legacy or v2.3.1 composites."""
 
-    def __init__(self, root, manifest):
-        self.root = str(root)
+    def __init__(self, manifest):
         self.n = int(manifest["rows"])
         self.d = int(manifest["dim"])
+        self.files = dict(manifest["files"])
         self._x = None
         self._y = None
 
     def _open(self):
         if self._x is None:
-            root = Path(self.root)
-            self._x = np.memmap(
-                root / "X.f32", dtype=np.float32, mode="r", shape=(self.n, self.d)
-            )
+            self._x = np.memmap(self.files["X"], dtype=np.float32, mode="r", shape=(self.n, self.d))
             self._y = {
-                head: np.memmap(
-                    root / f"{head}.i64", dtype=np.int64, mode="r", shape=(self.n,)
-                )
+                head: np.memmap(self.files[head], dtype=np.int64, mode="r", shape=(self.n,))
                 for head in HEADS
             }
 
@@ -83,9 +80,70 @@ class MemmapDataset(Dataset):
         y = {head: torch.tensor(int(self._y[head][index])) for head in HEADS}
         return x, y
 
-    def root_labels(self):
-        path = Path(self.root) / "root.i64"
-        return np.memmap(path, dtype=np.int64, mode="r", shape=(self.n,))
+    def labels(self, head):
+        return np.memmap(self.files[head], dtype=np.int64, mode="r", shape=(self.n,))
+
+
+class CompositeDataset(Dataset):
+    def __init__(self, shards):
+        self.shards = [Shard(s) for s in shards if int(s["rows"]) > 0]
+        if not self.shards:
+            raise ValueError("no feature shards")
+        dims = {s.d for s in self.shards}
+        if len(dims) != 1:
+            raise ValueError("shard dimensions differ")
+        self.d = dims.pop()
+        self.ends = []
+        total = 0
+        for shard in self.shards:
+            total += len(shard)
+            self.ends.append(total)
+        self.n = total
+
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, index):
+        shard_index = bisect.bisect_right(self.ends, index)
+        start = 0 if shard_index == 0 else self.ends[shard_index - 1]
+        return self.shards[shard_index][index - start]
+
+    def labels(self, head):
+        return np.concatenate([np.asarray(s.labels(head)) for s in self.shards])
+
+
+def _legacy_shard(root, split, manifest):
+    def resolve(head):
+        fallback = root / split / ("X.f32" if head == "X" else f"{head}.i64")
+        value = Path(manifest.get("files", {}).get(head, fallback))
+        if value.is_file():
+            return str(value.resolve())
+        if not value.is_absolute() and (root / value).is_file():
+            return str((root / value).resolve())
+        raise FileNotFoundError(value)
+    return {
+        "rows": manifest["rows"],
+        "dim": manifest["dim"],
+        "files": {head: resolve(head) for head in ("X", *HEADS)},
+    }
+
+
+def load_feature_set(path):
+    root = Path(path)
+    composite = root / "composite_features.json"
+    legacy = root / "hierarchy_features.json"
+    if composite.is_file():
+        manifest = json.loads(composite.read_text())
+        train_shards = manifest["splits"]["train"]["shards"]
+        val_shards = manifest["splits"]["validation"]["shards"]
+    elif legacy.is_file():
+        manifest = json.loads(legacy.read_text())
+        train_shards = [_legacy_shard(root, "train", manifest["splits"]["train"])]
+        val_shards = [_legacy_shard(root, "validation", manifest["splits"]["validation"])]
+    else:
+        raise FileNotFoundError("feature manifest missing")
+    schema = HierarchySchema.from_dict(manifest["schema"])
+    return manifest, schema, CompositeDataset(train_shards), CompositeDataset(val_shards)
 
 
 class DistributedWeightedSampler(Sampler[int]):
@@ -117,6 +175,21 @@ class DistributedWeightedSampler(Sampler[int]):
             self.weights, self.total, replacement=True, generator=generator
         )
         return iter(indices[self.rank : self.total : self.replicas].tolist())
+
+
+class DistributedEvalSampler(Sampler[int]):
+    """Shard validation without padding, so metrics never double-count rows."""
+
+    def __init__(self, size, num_replicas, rank):
+        self.size = int(size)
+        self.replicas = int(num_replicas)
+        self.rank = int(rank)
+
+    def __iter__(self):
+        return iter(range(self.rank, self.size, self.replicas))
+
+    def __len__(self):
+        return max(0, (self.size - self.rank + self.replicas - 1) // self.replicas)
 
 
 class Progress:
@@ -216,9 +289,34 @@ def unwrap_model(model):
     return getattr(target, "_orig_mod", target)
 
 
+def _metric(matrix, names):
+    m = matrix.double().cpu().numpy()
+    values = []
+    per_class = {}
+    for i, name in enumerate(names):
+        tp = int(m[i, i])
+        fp = int(m[:, i].sum() - tp)
+        fn = int(m[i, :].sum() - tp)
+        support = int(m[i, :].sum())
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        values.append(f1)
+        per_class[name] = {"precision": precision, "recall": recall, "f1": f1, "support": support}
+    total = int(m.sum())
+    return {
+        "macro_f1": sum(values) / len(values),
+        "accuracy": float(np.trace(m) / total) if total else 0.0,
+        "records": total,
+        "per_class": per_class,
+        "confusion_matrix": m.astype(np.int64).tolist(),
+        "class_order": list(names),
+    }
+
+
 def evaluate(model, loader, criterion, device, schema, rank, log_every):
     model.eval()
-    confusion = Confusion(len(schema.profile.root), device)
+    confusions = {head: Confusion(len(schema.classes(head)), device) for head in HEADS}
     loss_sum = torch.zeros((), dtype=torch.float64, device=device)
     rows = torch.zeros((), dtype=torch.long, device=device)
     progress = Progress(len(loader), "validation", rank == 0, log_every)
@@ -236,20 +334,18 @@ def evaluate(model, loader, criterion, device, schema, rank, log_every):
             batch_n = x.shape[0]
             loss_sum += loss.detach().double() * batch_n
             rows += batch_n
-            confusion.add(y["root"], logits["root"].argmax(1))
+            for head in HEADS:
+                confusions[head].add(y[head], logits[head].argmax(1))
             progress.update(step, loss=float(loss.detach()), device=device)
     if dist.is_initialized():
         dist.all_reduce(loss_sum, op=dist.ReduceOp.SUM)
         dist.all_reduce(rows, op=dist.ReduceOp.SUM)
-    confusion.sync()
-    macro, per_class = confusion.macro_f1()
+    for confusion in confusions.values():
+        confusion.sync()
     progress.update(len(loader), loss=float(loss_sum / rows.clamp_min(1)), device=device, force=True)
-    return {
-        "loss": float((loss_sum / rows.clamp_min(1)).cpu()),
-        "root_macro_f1": macro,
-        "root_per_class_f1": per_class,
-        "rows": int(rows.cpu()),
-    }
+    metrics = {head: _metric(confusions[head].mat, schema.classes(head)) for head in HEADS}
+    metrics["loss"] = float((loss_sum / rows.clamp_min(1)).cpu())
+    return metrics
 
 
 def train(args):
@@ -269,15 +365,9 @@ def train(args):
             torch.backends.cudnn.benchmark = True
         torch.set_float32_matmul_precision("high")
 
-        root = Path(args.features)
-        feature_manifest = json.loads((root / "hierarchy_features.json").read_text())
-        schema = HierarchySchema.from_dict(feature_manifest["schema"])
-        train_manifest = feature_manifest["splits"]["train"]
-        val_manifest = feature_manifest["splits"]["validation"]
-        train_set = MemmapDataset(root / "train", train_manifest)
-        val_set = MemmapDataset(root / "validation", val_manifest)
+        feature_manifest, schema, train_set, val_set = load_feature_set(args.features)
 
-        root_y = np.asarray(train_set.root_labels())
+        root_y = train_set.labels("root")
         counts = np.bincount(root_y, minlength=len(schema.profile.root))
         class_weight = 1.0 / np.maximum(counts, 1)
         sample_weight = class_weight[root_y]
@@ -285,9 +375,7 @@ def train(args):
             train_sampler = DistributedWeightedSampler(
                 sample_weight, world, rank, seed=args.seed, drop_last=True
             )
-            val_sampler = torch.utils.data.distributed.DistributedSampler(
-                val_set, num_replicas=world, rank=rank, shuffle=False, drop_last=False
-            )
+            val_sampler = DistributedEvalSampler(len(val_set), world, rank)
         else:
             train_sampler = WeightedRandomSampler(
                 torch.as_tensor(sample_weight, dtype=torch.double),
@@ -308,14 +396,16 @@ def train(args):
         )
 
         head_sizes = {
-            "root": len(schema.profile.root),
-            "euk": len(schema.euk),
-            "prok": len(schema.prok),
-            "organelle": len(schema.organelle),
+            head: len(schema.classes(head)) for head in HEADS
         }
         hidden = tuple(int(x) for x in args.hidden.split(",") if x.strip())
+        if schema.profile.version == "2.3.1":
+            actual = {"epochs": args.epochs, "batch": args.batch, "lr": args.lr, "hidden": hidden, "dropout": args.dropout}
+            drift = {key: {"expected": value, "actual": actual[key]} for key, value in CONTRACT.items() if actual[key] != value}
+            if drift:
+                raise ValueError("v2.3.1 training contract drift: " + json.dumps(drift, sort_keys=True))
         model_config = {
-            "dim_in": int(train_manifest["dim"]),
+            "dim_in": int(train_set.d),
             "head_sizes": head_sizes,
             "hidden": list(hidden),
             "dropout": float(args.dropout),
@@ -324,17 +414,9 @@ def train(args):
         if args.compile:
             model = torch.compile(model, mode=args.compile_mode)
         if distributed:
-            model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+            model = DDP(model, device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
 
-        loss_weights = {
-            "root": args.loss_root,
-            "euk": args.loss_euk,
-            "prok": args.loss_prok,
-            "organelle": args.loss_organelle,
-        }
-        criterion = MaskedHierarchicalLoss(
-            schema.index("root"), loss_weights, label_smoothing=args.label_smoothing
-        )
+        criterion = MaskedHierarchicalLoss(schema.index("root"))
         optimizer_kwargs = dict(lr=args.lr, weight_decay=args.weight_decay)
         if device.type == "cuda":
             try:
@@ -369,7 +451,7 @@ def train(args):
             print("[training configuration]", flush=True)
             print(f"  device/world       : {device} / {world}", flush=True)
             print(f"  train/validation   : {len(train_set):,} / {len(val_set):,}", flush=True)
-            print(f"  dimensions         : {train_manifest['dim']:,}", flush=True)
+            print(f"  dimensions         : {train_set.d:,}", flush=True)
             print(f"  batch per GPU      : {args.batch:,}", flush=True)
             print(f"  effective batch    : {args.batch * world * args.accumulate:,}", flush=True)
             print(f"  workers per rank   : {workers}", flush=True)
@@ -437,8 +519,8 @@ def train(args):
 
             row = {
                 "epoch": epoch,
-                "train_loss": train_loss,
-                **validation,
+                "loss": train_loss,
+                **{f"{head}_macro_f1": validation[head]["macro_f1"] for head in HEADS},
                 "seconds": round(time.time() - epoch_start, 3),
             }
             if is_main:
@@ -453,14 +535,16 @@ def train(args):
                     "schema": schema.to_dict(),
                     "model": model_config,
                     "feature_manifest": feature_manifest,
-                    "best_root_macro_f1": max(best, validation["root_macro_f1"]),
+                    "best_root_macro_f1": max(best, validation["root"]["macro_f1"]),
+                    "best_validation_metrics": validation,
+                    "checkpoint_selector": "root_macro_f1",
                     "version": schema.profile.version,
                     "history": history,
                     "world_size": world,
                 }
                 torch.save(state, out / "last_checkpoint.pt")
-                if validation["root_macro_f1"] > best:
-                    best = validation["root_macro_f1"]
+                if validation["root"]["macro_f1"] > best:
+                    best = validation["root"]["macro_f1"]
                     state["best_root_macro_f1"] = best
                     torch.save(state, out / "hierarchical_model.pt")
                     print(f"[checkpoint] new best root macro-F1={best:.6f}", flush=True)
@@ -487,18 +571,13 @@ def build_parser():
     p.add_argument("--batch", type=int, default=1024, help="batch size per GPU")
     p.add_argument("--val-batch", type=int, default=0)
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--weight-decay", type=float, default=1e-2)
     p.add_argument("--hidden", default="2048,1024")
     p.add_argument("--dropout", type=float, default=0.2)
-    p.add_argument("--label-smoothing", type=float, default=0.0)
-    p.add_argument("--loss-root", type=float, default=1.0)
-    p.add_argument("--loss-euk", type=float, default=1.0)
-    p.add_argument("--loss-prok", type=float, default=0.5)
-    p.add_argument("--loss-organelle", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=-1, help="workers per rank; -1=auto")
     p.add_argument("--prefetch", type=int, default=4, help="batches prefetched per worker")
     p.add_argument("--accumulate", type=int, default=1)
-    p.add_argument("--grad-clip", type=float, default=5.0)
+    p.add_argument("--grad-clip", type=float, default=0.0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", help="single-process device, e.g. cuda:0 or cpu")
     p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
