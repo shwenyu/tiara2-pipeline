@@ -1,0 +1,64 @@
+{
+  "checkpoint": "hierarchical_model.pt",
+  "checkpoint_metadata": {
+    "best_root_macro_f1": 0.9663078482251904,
+    "dim_in": 16384,
+    "dropout": 0.2,
+    "epoch": 34,
+    "head_sizes": {
+      "euk": 8,
+      "organelle": 2,
+      "prok": 2,
+      "root": 3
+    },
+    "hidden": [
+      2048,
+      1024
+    ],
+    "parameter_count": 35670031,
+    "root_classes": [
+      "euk_nuclear",
+      "prok",
+      "organelle"
+    ],
+    "tensor_count": 12,
+    "version": "2.3.2",
+    "world_size": 8
+  },
+  "feature": {
+    "k": 7,
+    "tfidf": "tiara/models/tfidf-models-v2.2.0/k7-first-stage",
+    "tfidf_model_sha256": "2beeb73b339dab892cf68e43afb55194a7a7a4ede5fca6594139af396efa4715",
+    "tfidf_params_sha256": "7d09059ccbfafbc87364e82216c23c79e960a12c83b1028b795329dd3606ce76"
+  },
+  "files": [
+    {
+      "bytes": 428070530,
+      "name": "hierarchical_model.pt",
+      "sha256": "dcf1d66e9e493bc46656c660826a91057c9bbc4abed30fd0679ac47a75a0d185"
+    },
+    {
+      "bytes": 2713,
+      "name": "sampling_plan.json",
+      "sha256": "38c379e71c3c4d930ecca12ba8d4b6b94fff1e43740b504202b87832c8087974"
+    },
+    {
+      "bytes": 12449,
+      "name": "training_history.json",
+      "sha256": "9997642466b7581201c77783bd98936c1c46eff23b33be157115da34f0e0b17b"
+    }
+  ],
+  "manifest_version": 1,
+  "model_family": "tiara2_hierarchical",
+  "model_tag": "v2.3.2",
+  "output_columns": [
+    "record_id",
+    "root",
+    "leaf",
+    "root_probability",
+    "leaf_probability"
+  ],
+  "published_at": "2026-08-07T04:10:07Z",
+  "sampling_plan": "sampling_plan.json",
+  "source": "/data/shouhanyu/Tiara2_v2_3_2/models/v2.3.2"
+}

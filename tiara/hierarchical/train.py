@@ -31,11 +31,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset, Sampler, WeightedRandomSampler
 
 try:
-    from .schema import HierarchySchema
+    from .schema import EUK_WEIGHTS, HierarchySchema, profile
     from .model import HierarchicalClassifier, MaskedHierarchicalLoss
+    from .sampling_v232 import build_hierarchical_sampling_plan
 except ImportError:  # allow copying this file and running it directly
-    from tiara.hierarchical.schema import HierarchySchema
+    from tiara.hierarchical.schema import EUK_WEIGHTS, HierarchySchema, profile
     from tiara.hierarchical.model import HierarchicalClassifier, MaskedHierarchicalLoss
+    from tiara.hierarchical.sampling_v232 import build_hierarchical_sampling_plan
 
 HEADS = ("root", "euk", "prok", "organelle")
 CONTRACT = {"epochs": 50, "batch": 1024, "lr": 1e-3, "hidden": (2048, 1024), "dropout": 0.2}
@@ -45,6 +47,41 @@ _STOP = False
 def _stop_handler(_sig, _frame):
     global _STOP
     _STOP = True
+
+
+def parse_weight_map(value):
+    if not value:
+        return dict(EUK_WEIGHTS)
+    parsed = {}
+    for item in value.split(","):
+        name, sep, weight = item.strip().partition("=")
+        if not sep or not name:
+            raise ValueError(f"invalid Euk target weight {item!r}; expected name=value")
+        parsed[name] = float(weight)
+    expected = set(EUK_WEIGHTS)
+    if set(parsed) != expected:
+        raise ValueError(f"Euk target keys differ: missing={sorted(expected-set(parsed))}, extra={sorted(set(parsed)-expected)}")
+    return parsed
+
+
+def load_donor_index(manifest_path, expected_rows):
+    """Load and verify the accession/species/genus arrays aligned to Euk rows."""
+    path = Path(manifest_path)
+    manifest = json.loads(path.read_text())
+    if not manifest.get("ready") or manifest.get("version") != "2.3.2":
+        raise ValueError("donor index is not a ready v2.3.2 manifest")
+    if int(manifest.get("rows", -1)) != int(expected_rows):
+        raise ValueError(
+            f"donor index row mismatch: manifest={manifest.get('rows')} features={expected_rows}"
+        )
+    arrays = {}
+    for name in ("accession", "species", "genus"):
+        array_path = Path(manifest["arrays"][name])
+        values = np.load(array_path, mmap_mode="r", allow_pickle=False)
+        if values.shape != (int(expected_rows),) or values.dtype.kind not in "iu":
+            raise ValueError(f"invalid {name} donor array: {array_path}")
+        arrays[name] = values
+    return arrays, manifest
 
 
 class Shard(Dataset):
@@ -366,11 +403,76 @@ def train(args):
         torch.set_float32_matmul_precision("high")
 
         feature_manifest, schema, train_set, val_set = load_feature_set(args.features)
+        source_feature_version = schema.profile.version
+        if args.profile_version:
+            target_profile = profile(args.profile_version)
+            if tuple(target_profile.root) != tuple(schema.profile.root):
+                raise ValueError("profile override changes root schema order")
+            schema = HierarchySchema(target_profile, schema.euk, schema.prok, schema.organelle)
 
         root_y = train_set.labels("root")
         counts = np.bincount(root_y, minlength=len(schema.profile.root))
-        class_weight = 1.0 / np.maximum(counts, 1)
-        sample_weight = class_weight[root_y]
+        sampler_mode = args.sampler
+        if sampler_mode == "auto":
+            sampler_mode = "hierarchical" if schema.profile.branch_balancing_enabled else "root"
+        if sampler_mode == "hierarchical":
+            donor_codes = None
+            donor_manifest = None
+            donor_max_shares = {
+                "accession": args.max_accession_share,
+                "species": args.max_species_share,
+                "genus": args.max_genus_share,
+            }
+            if args.donor_index:
+                euk_rows = int((root_y == schema.index("root")["euk_nuclear"]).sum())
+                donor_codes, donor_manifest = load_donor_index(args.donor_index, euk_rows)
+            plan = build_hierarchical_sampling_plan(
+                root_y,
+                train_set.labels("euk"),
+                schema,
+                parse_weight_map(args.euk_target_weights),
+                args.max_euk_oversample,
+                donor_codes=donor_codes,
+                donor_max_shares=donor_max_shares if donor_codes is not None else None,
+            )
+            sample_weight = plan.sample_weights
+            sampling_report = dict(plan.report)
+            if donor_manifest is not None:
+                sampling_report["donor_index"] = {
+                    "manifest": str(Path(args.donor_index).resolve()),
+                    "rows": int(donor_manifest["rows"]),
+                    "unique": donor_manifest.get("unique", {}),
+                    "array_sha256": donor_manifest.get("array_sha256", {}),
+                }
+        else:
+            class_weight = 1.0 / np.maximum(counts, 1)
+            sample_weight = class_weight[root_y]
+            sampling_report = {
+                "policy": "root_balancing_v2.3.1",
+                "root_counts": {name: int(counts[i]) for i, name in enumerate(schema.classes("root"))},
+                "inverse_frequency_loss": False,
+                "donor_caps_applied": False,
+            }
+        sampling_report.update({
+            "profile_version": schema.profile.version,
+            "source_feature_version": source_feature_version,
+            "seed": int(args.seed),
+            "world_size": int(world),
+            "ddp_sharding": "global deterministic multinomial then rank stride" if distributed else "single process multinomial",
+        })
+        if args.require_donor_caps and not sampling_report.get("donor_caps_applied"):
+            raise ValueError("donor caps required but aligned accession/species/genus arrays were not supplied")
+        if args.sampling_plan_only:
+            if is_main:
+                out = Path(args.out)
+                out.mkdir(parents=True, exist_ok=True)
+                (out / "sampling_plan.json").write_text(
+                    json.dumps(sampling_report, indent=2, sort_keys=True) + "\n"
+                )
+                print(json.dumps(sampling_report, indent=2, sort_keys=True), flush=True)
+            if distributed:
+                dist.barrier()
+            return sampling_report
         if distributed:
             train_sampler = DistributedWeightedSampler(
                 sample_weight, world, rank, seed=args.seed, drop_last=True
@@ -399,7 +501,7 @@ def train(args):
             head: len(schema.classes(head)) for head in HEADS
         }
         hidden = tuple(int(x) for x in args.hidden.split(",") if x.strip())
-        if schema.profile.version == "2.3.1":
+        if schema.profile.version in {"2.3.1", "2.3.2"}:
             actual = {"epochs": args.epochs, "batch": args.batch, "lr": args.lr, "hidden": hidden, "dropout": args.dropout}
             drift = {key: {"expected": value, "actual": actual[key]} for key, value in CONTRACT.items() if actual[key] != value}
             if drift:
@@ -430,6 +532,7 @@ def train(args):
         out = Path(args.out)
         if is_main:
             out.mkdir(parents=True, exist_ok=True)
+            (out / "sampling_plan.json").write_text(json.dumps(sampling_report, indent=2, sort_keys=True) + "\n")
         if distributed:
             dist.barrier()
 
@@ -541,6 +644,7 @@ def train(args):
                     "version": schema.profile.version,
                     "history": history,
                     "world_size": world,
+                    "sampling_plan": sampling_report,
                 }
                 torch.save(state, out / "last_checkpoint.pt")
                 if validation["root"]["macro_f1"] > best:
@@ -585,6 +689,16 @@ def build_parser():
     p.add_argument("--compile-mode", default="reduce-overhead", choices=("default", "reduce-overhead", "max-autotune"))
     p.add_argument("--log-every", type=int, default=25, help="progress interval in batches")
     p.add_argument("--resume", help="path to last_checkpoint.pt")
+    p.add_argument("--profile-version", choices=("2.3.1", "2.3.2"), help="override only the version profile; class order must remain identical")
+    p.add_argument("--sampler", choices=("auto", "root", "hierarchical"), default="auto")
+    p.add_argument("--euk-target-weights", help="comma-separated name=value map; defaults to the frozen v2.3.2 roadmap weights")
+    p.add_argument("--max-euk-oversample", type=float, default=4.0)
+    p.add_argument("--donor-index", help="aligned donor_index_manifest.json for v2.3.2")
+    p.add_argument("--max-accession-share", type=float, default=0.05, help="candidate within-leaf cap; record in sampling_plan.json")
+    p.add_argument("--max-species-share", type=float, default=0.05, help="candidate within-leaf cap; record in sampling_plan.json")
+    p.add_argument("--max-genus-share", type=float, default=0.05, help="candidate within-leaf cap; record in sampling_plan.json")
+    p.add_argument("--require-donor-caps", action="store_true")
+    p.add_argument("--sampling-plan-only", action="store_true", help="write the audited plan without constructing or training a model")
     return p
 
 

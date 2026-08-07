@@ -1,0 +1,51 @@
+# Tiara2 v2.3.2 — hierarchical branch balancing only.
+version: "2.3.2"
+primary_variable: hierarchical_branch_balancing
+
+frozen_inputs:
+  corpus: "/ssd/shouhanyu/Tiara2/corpus_ready_v2_1_3_bpbalanced"
+  metadata: "/data/shouhanyu/Tiara2_v2_3_1/metadata/hierarchical_labels_v2_3_1_deduplicated.tsv"
+  metadata_sha256: "e750eadad5dc97e2219e02c11a786b873720e3107250c7faca8570983ae72e0b"
+  composite_features: "/ssd/shouhanyu/Tiara2_v2_3_1/cache/hierarchy_k7_composite"
+  donor_index: "/data/shouhanyu/Tiara2_v2_3_2/donor_index/donor_index_manifest.json"
+
+sampling:
+  root_target:
+    euk_nuclear: 0.3333333333333333
+    prok: 0.3333333333333333
+    organelle: 0.3333333333333333
+  euk_target:
+    fungi: 0.20
+    metazoa_invertebrate: 0.15
+    land_plant: 0.13
+    alveolata: 0.12
+    other_protist: 0.12
+    stramenopiles: 0.10
+    metazoa_vertebrate: 0.10
+    algae: 0.08
+  max_euk_oversample: 4.0
+  inverse_frequency_loss: false
+  donor_cap_scope: within_each_euk_leaf
+  # Candidate values. Formal training requires explicit confirmation.
+  max_accession_share: 0.05
+  max_species_share: 0.05
+  max_genus_share: 0.05
+
+model:
+  hidden: [2048, 1024]
+  dropout: 0.2
+  optimizer: AdamW
+  learning_rate: 0.001
+  epochs: 50
+  batch_size_per_gpu: 1024
+  world_size: 8
+  amp: true
+  seed: 42
+  output_root: "/data/shouhanyu/Tiara2_v2_3_2/models/v2.3.2"
+
+acceptance:
+  improve_euk_macro_f1: true
+  improve_worst_euk_leaf_f1: true
+  improve_rare_leaf_recall: true
+  preserve_common_leaf_performance: true
+  preserve_legacy_benchmark: true

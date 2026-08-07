@@ -1,0 +1,96 @@
+{
+  "ddp_sharding": "global deterministic multinomial then rank stride",
+  "donor_achieved_max_shares": {
+    "accession": 0.05000000000000914,
+    "genus": 0.05000000000000914,
+    "species": 0.05000000000000914
+  },
+  "donor_cap_scope": "within_each_euk_leaf",
+  "donor_caps_applied": true,
+  "donor_index": {
+    "array_sha256": {
+      "accession": "feba3590bd6b9639c130c5f36982cbfe42e7b816eb19c8a8317e882dcbeb027d",
+      "genus": "feba3590bd6b9639c130c5f36982cbfe42e7b816eb19c8a8317e882dcbeb027d",
+      "species": "feba3590bd6b9639c130c5f36982cbfe42e7b816eb19c8a8317e882dcbeb027d"
+    },
+    "manifest": "/data/shouhanyu/Tiara2_v2_3_2/donor_index/donor_index_manifest.json",
+    "rows": 854178,
+    "unique": {
+      "accession": 3393,
+      "genus": 3393,
+      "species": 3393
+    }
+  },
+  "donor_max_shares": {
+    "accession": 0.05,
+    "genus": 0.05,
+    "species": 0.05
+  },
+  "euk_counts": {
+    "algae": 28037,
+    "alveolata": 48780,
+    "fungi": 265721,
+    "land_plant": 100150,
+    "metazoa_invertebrate": 60921,
+    "metazoa_vertebrate": 251057,
+    "other_protist": 28483,
+    "stramenopiles": 71029
+  },
+  "euk_effective": {
+    "algae": 0.08,
+    "alveolata": 0.12,
+    "fungi": 0.2,
+    "land_plant": 0.13,
+    "metazoa_invertebrate": 0.15,
+    "metazoa_vertebrate": 0.1,
+    "other_protist": 0.12,
+    "stramenopiles": 0.1
+  },
+  "euk_natural": {
+    "algae": 0.03282336936797717,
+    "alveolata": 0.05710753496343853,
+    "fungi": 0.3110838724481314,
+    "land_plant": 0.11724722481730974,
+    "metazoa_invertebrate": 0.0713212000309069,
+    "metazoa_vertebrate": 0.2939164904738825,
+    "other_protist": 0.03334550878154202,
+    "stramenopiles": 0.08315479911681171
+  },
+  "euk_oversample_factor": {
+    "algae": 2.4372878696008846,
+    "alveolata": 2.10129889298893,
+    "fungi": 0.6429134317573696,
+    "land_plant": 1.1087682476285572,
+    "metazoa_invertebrate": 2.1031614714137983,
+    "metazoa_vertebrate": 0.34023269616063284,
+    "other_protist": 3.598685531720675,
+    "stramenopiles": 1.2025764124512524
+  },
+  "euk_requested": {
+    "algae": 0.08,
+    "alveolata": 0.12,
+    "fungi": 0.2,
+    "land_plant": 0.13,
+    "metazoa_invertebrate": 0.15,
+    "metazoa_vertebrate": 0.1,
+    "other_protist": 0.12,
+    "stramenopiles": 0.1
+  },
+  "inverse_frequency_loss": false,
+  "max_euk_oversample": 4.0,
+  "policy": "hierarchical_branch_balancing_v1",
+  "profile_version": "2.3.2",
+  "root_counts": {
+    "euk_nuclear": 854178,
+    "organelle": 222226,
+    "prok": 1564557
+  },
+  "root_target": {
+    "euk_nuclear": 0.3333333333333333,
+    "organelle": 0.3333333333333333,
+    "prok": 0.3333333333333333
+  },
+  "seed": 42,
+  "source_feature_version": "2.3.1",
+  "world_size": 8
+}
