@@ -9,7 +9,7 @@ def main(argv=None):
  a=s.add_parser("audit");a.add_argument("--metadata-tsv",required=True);a.add_argument("--out")
  a=s.add_parser("prepare");a.add_argument("--train-ready",required=True);a.add_argument("--out",required=True);a.add_argument("--tfidf",required=True);a.add_argument("--version",default="2.3.0");a.add_argument("--metadata-tsv");a.add_argument("--virus-dir");a.add_argument("--unknown-euk",choices=["error","other_protist"],default="error")
  a=s.add_parser("train");a.add_argument("--features",required=True);a.add_argument("--out",required=True);a.add_argument("--epochs",type=int,default=50);a.add_argument("--batch",type=int,default=1024);a.add_argument("--lr",type=float,default=1e-3);a.add_argument("--hidden",default="2048,1024");a.add_argument("--dropout",type=float,default=.2);a.add_argument("--device")
- a=s.add_parser("classify");a.add_argument("--checkpoint",required=True);a.add_argument("--tfidf",required=True);a.add_argument("-i","--input",required=True);a.add_argument("-o","--output",required=True);a.add_argument("--batch",type=int,default=512);a.add_argument("--device");a.add_argument("--min-len",type=int,default=1000)
+ a=s.add_parser("classify");m=a.add_mutually_exclusive_group(required=True);m.add_argument("--checkpoint");m.add_argument("--bundle");a.add_argument("--tfidf");a.add_argument("-i","--input",required=True);a.add_argument("-o","--output",required=True);a.add_argument("--batch",type=int,default=512);a.add_argument("--device");a.add_argument("--min-len",type=int,default=1000);a.add_argument("--max-records",type=int)
  a=s.add_parser("freeze-base");a.add_argument("--train-ready",required=True);a.add_argument("--tfidf",required=True);a.add_argument("--metadata-tsv",required=True);a.add_argument("--out",required=True)
  a=s.add_parser("verify-freeze");a.add_argument("--manifest",required=True);a.add_argument("--mode",choices=["quick","full"],default="full")
  a=s.add_parser("audit-euk");a.add_argument("--base-metadata",required=True);a.add_argument("--out",required=True);a.add_argument("--source-index");a.add_argument("--pool-metadata");a.add_argument("--taxdump-dir");a.add_argument("--overrides-tsv")
@@ -28,6 +28,10 @@ def main(argv=None):
  if x.cmd=="train":
   from .train import train;show({"best_root_macro_f1":train(x.features,x.out,x.epochs,x.batch,x.lr,tuple(map(int,x.hidden.split(','))),x.dropout,x.device)});return
  if x.cmd=="classify":
+  if x.bundle:
+   from .multi_expert import classify;classify(x.bundle,x.input,x.output,x.batch,x.device,min_len=x.min_len,max_records=x.max_records);return
+  if x.max_records is not None:p.error("classify --max-records requires --bundle")
+  if not x.tfidf:p.error("classify --checkpoint requires --tfidf")
   from .infer import classify;classify(x.checkpoint,x.tfidf,x.input,x.output,x.batch,x.device,min_len=x.min_len);return
  if x.cmd=="freeze-base":
   from .freeze import freeze_base;show(freeze_base(x.train_ready,x.tfidf,x.metadata_tsv,x.out));return

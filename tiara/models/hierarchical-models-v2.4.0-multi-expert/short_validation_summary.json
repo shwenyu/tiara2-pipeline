@@ -1,0 +1,22 @@
+{
+  "dataset": "frozen training validation split, 1000-2499 bp",
+  "records": 158381,
+  "not_formal_benchmark": true,
+  "long_v2.3.2": {
+    "checkpoint_epoch": 34,
+    "root_macro_f1": 0.9407010073161653,
+    "euk_macro_f1": 0.6179251357224531,
+    "fungi_f1": 0.8180040187541862
+  },
+  "short_expert": {
+    "checkpoint_epoch": 50,
+    "root_macro_f1": 0.9406493262026784,
+    "euk_macro_f1": 0.6216894036475463,
+    "fungi_f1": 0.8173188113486622
+  },
+  "delta_percentage_points": {
+    "root_macro_f1": -0.005168111348686111,
+    "euk_macro_f1": 0.3764267925093131,
+    "fungi_f1": -0.06852074055240331
+  }
+}
