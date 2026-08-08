@@ -1,0 +1,31 @@
+{
+  "comparison": "short_validation_summary.json",
+  "created_at": "2026-08-08T12:00:00+08:00",
+  "experts": {
+    "long": {
+      "checkpoint": "../hierarchical-models-v2.3.2/hierarchical_model.pt",
+      "sha256": "dcf1d66e9e493bc46656c660826a91057c9bbc4abed30fd0679ac47a75a0d185"
+    },
+    "short": {
+      "checkpoint": "short_expert.pt",
+      "sha256": "01e0941ebeff937a0ff09ad73ee0b91961804edefbfe357c1203babb51248874"
+    }
+  },
+  "format": "tiara2-multi-expert-v1",
+  "gates": {
+    "external_four_task_short_benchmark": "pending",
+    "publishable": false,
+    "short_validation_fungi_improvement": false,
+    "short_validation_root_noninferiority": true
+  },
+  "router": {
+    "short_if_length_lt_bp": 2500,
+    "threshold_selection": "roadmap_fixed_candidate_pending_benchmark_gate",
+    "type": "deterministic_length"
+  },
+  "status": "experimental_not_publishable",
+  "temperatures": null,
+  "tfidf": "../tfidf-models-v2.2.0/k7-first-stage",
+  "thresholds": {},
+  "version": "2.4.0-C-experimental"
+}

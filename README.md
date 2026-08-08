@@ -199,6 +199,25 @@ publish:
 
 ## 9. 推理（统一调用层）
 
+### v2.4.0 双 expert 自动路由（实验版）
+
+双 expert 对外仍是一个调用。输入可以混合不同长度的 contig，内部自动按长度
+拆 batch，分别调用 short/long expert，再按原输入顺序合并结果：
+
+```bash
+python -m tiara.hierarchical classify \
+  --bundle tiara/models/hierarchical-models-v2.4.0-multi-expert/model_manifest.json \
+  -i contigs.fa \
+  -o predictions.tsv
+```
+
+固定路由为 `<2500 bp → short expert`、`≥2500 bp → frozen v2.3.2 long expert`。
+调用方不需要选择 checkpoint 或 TF–IDF；bundle 会统一加载并在推理前验证两个
+checkpoint 的 SHA-256。输出新增 `length_bp` 和 `expert` 两列，便于审计路由。
+
+当前 bundle 标记为 experimental：训练 validation 对照已冻结，但正式四任务 short
+benchmark 尚未完成，因此不会替换 v2.3.2 current release。
+
 推理不再需要手工拼模型路径。模型集合从 `training_manifest.json` +
 `tfidf_manifest.json` + 已发布目录里**发现**，代码中没有任何 k 列表硬编码。
 
