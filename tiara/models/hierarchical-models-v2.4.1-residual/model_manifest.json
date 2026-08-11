@@ -1,0 +1,38 @@
+{
+  "version": "2.4.1-B",
+  "format": "tiara2-residual-multi-expert-v1",
+  "status": "benchmark_candidate",
+  "base": {
+    "checkpoint": "../hierarchical-models-v2.3.2/hierarchical_model.pt",
+    "sha256": "dcf1d66e9e493bc46656c660826a91057c9bbc4abed30fd0679ac47a75a0d185"
+  },
+  "residual": {
+    "checkpoint": "residual_adapter.pt",
+    "sha256": "e2032acb7248183a4dd7a552884fa4e3715d24dcee040d524c3cb41079452a5b",
+    "model": {
+      "dim_in": 5376,
+      "hidden": [1024, 512],
+      "head_sizes": {"root": 3, "euk": 8, "prok": 2, "organelle": 2},
+      "dropout": 0.1
+    }
+  },
+  "tfidf": {
+    "k4": "tfidf/k4-first-stage",
+    "k5": "tfidf/k5-first-stage",
+    "k6": "tfidf/k6-first-stage",
+    "k7": "../tfidf-models-v2.2.0/k7-first-stage"
+  },
+  "router": {
+    "type": "deterministic_length_residual",
+    "residual_if_length_lt_bp": 2500,
+    "alpha": 0.125
+  },
+  "thresholds": {},
+  "temperatures": null,
+  "validation": "alpha_sweep.json",
+  "gates": {
+    "zero_init_equivalence": true,
+    "validation_all_heads_pareto_noninferior": true,
+    "external_four_task_benchmark": "pending"
+  }
+}
