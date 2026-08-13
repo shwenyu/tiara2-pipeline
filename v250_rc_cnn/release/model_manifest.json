@@ -1,0 +1,95 @@
+{
+  "base": {
+    "checkpoint": "../../tiara/models/v2.3.2/hierarchical_model.pt",
+    "version": "2.3.2"
+  },
+  "data_unchanged": true,
+  "expert": {
+    "checkpoint": "rc_cnn_residual_model.pt",
+    "checkpoint_sha256": "bd09d7422fc6125f8f7700812c8ea206e8a0fafbd85063072e86d41d405e7a6b",
+    "epoch": 6,
+    "type": "RC-CNN-TCN residual"
+  },
+  "format": "tiara2-v250-local-correction-candidate-v1",
+  "grouped_oof": {
+    "activation_rate": 0.011162610631365,
+    "base_only_correct": 0,
+    "candidate": "prok_resnorm_q99_alpha_0.5",
+    "data_unchanged": true,
+    "deployment_threshold_full_validation": 0.9923387336730941,
+    "disabled_heads": [
+      "root",
+      "euk",
+      "organelle"
+    ],
+    "fold_thresholds": [
+      0.950872173905369,
+      1.0036911964416504,
+      0.9933193492889426,
+      0.9971310496330261,
+      1.010941743850708
+    ],
+    "grouped_oof": [
+      {
+        "active": 555,
+        "delta": 0.00049012104058066,
+        "fold": 0,
+        "threshold": 0.950872173905369
+      },
+      {
+        "active": 103,
+        "delta": 0.0,
+        "fold": 1,
+        "threshold": 1.0036911964416504
+      },
+      {
+        "active": 187,
+        "delta": 0.00013410925200108004,
+        "fold": 2,
+        "threshold": 0.9933193492889426
+      },
+      {
+        "active": 148,
+        "delta": 0.0,
+        "fold": 3,
+        "threshold": 0.9971310496330261
+      },
+      {
+        "active": 45,
+        "delta": 0.0,
+        "fold": 4,
+        "threshold": 1.010941743850708
+      }
+    ],
+    "hybrid_only_correct": 8,
+    "oof_delta": 0.00011248492800297605,
+    "release_default": false
+  },
+  "router": {
+    "euk": "base_only",
+    "organelle": "base_only",
+    "prok": {
+      "activate_if_residual_l2_gte": 0.9923387336730941,
+      "alpha": 0.5,
+      "eligible_if_base_root": "prok",
+      "threshold_source": "full frozen validation q99 after grouped-OOF rule selection"
+    },
+    "root": "base_only"
+  },
+  "status": "experimental_not_release_default",
+  "verification": {
+    "activation_rate_all": 0.005347863695771588,
+    "activation_rate_within_predicted_prok": 0.008925842791354473,
+    "active_rows": 847,
+    "base_macro_f1_true_prok": 0.9276163092554208,
+    "base_only_correct": 0,
+    "candidate_macro_f1_true_prok": 0.9277287941834238,
+    "candidate_only_correct": 8,
+    "delta_macro_f1_true_prok": 0.00011248492800297605,
+    "eligible_rows": 94893,
+    "other_heads_byte_identical": true,
+    "root_predictions_byte_identical": true,
+    "rows": 158381
+  },
+  "version": "2.5.0-local-prok"
+}

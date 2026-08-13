@@ -1,0 +1,14 @@
+{
+  "activation_rate_all": 0.005347863695771588,
+  "activation_rate_within_predicted_prok": 0.008925842791354473,
+  "active_rows": 847,
+  "base_macro_f1_true_prok": 0.9276163092554208,
+  "base_only_correct": 0,
+  "candidate_macro_f1_true_prok": 0.9277287941834238,
+  "candidate_only_correct": 8,
+  "delta_macro_f1_true_prok": 0.00011248492800297605,
+  "eligible_rows": 94893,
+  "other_heads_byte_identical": true,
+  "root_predictions_byte_identical": true,
+  "rows": 158381
+}

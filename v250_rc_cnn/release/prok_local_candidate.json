@@ -1,0 +1,54 @@
+{
+  "activation_rate": 0.011162610631365,
+  "base_only_correct": 0,
+  "candidate": "prok_resnorm_q99_alpha_0.5",
+  "data_unchanged": true,
+  "deployment_threshold_full_validation": 0.9923387336730941,
+  "disabled_heads": [
+    "root",
+    "euk",
+    "organelle"
+  ],
+  "fold_thresholds": [
+    0.950872173905369,
+    1.0036911964416504,
+    0.9933193492889426,
+    0.9971310496330261,
+    1.010941743850708
+  ],
+  "grouped_oof": [
+    {
+      "active": 555,
+      "delta": 0.00049012104058066,
+      "fold": 0,
+      "threshold": 0.950872173905369
+    },
+    {
+      "active": 103,
+      "delta": 0.0,
+      "fold": 1,
+      "threshold": 1.0036911964416504
+    },
+    {
+      "active": 187,
+      "delta": 0.00013410925200108004,
+      "fold": 2,
+      "threshold": 0.9933193492889426
+    },
+    {
+      "active": 148,
+      "delta": 0.0,
+      "fold": 3,
+      "threshold": 0.9971310496330261
+    },
+    {
+      "active": 45,
+      "delta": 0.0,
+      "fold": 4,
+      "threshold": 1.010941743850708
+    }
+  ],
+  "hybrid_only_correct": 8,
+  "oof_delta": 0.00011248492800297605,
+  "release_default": false
+}
