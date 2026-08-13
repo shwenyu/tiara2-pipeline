@@ -5,3 +5,4 @@ tiara/models/**/*.ckpt filter=lfs diff=lfs merge=lfs -text
 tiara/models/**/*.pt filter=lfs diff=lfs merge=lfs -text
 tiara/models/**/*.pth filter=lfs diff=lfs merge=lfs -text
 tiara/models/**/*.pkl filter=lfs diff=lfs merge=lfs -text
+v250_rc_cnn/release/*.pt filter=lfs diff=lfs merge=lfs -text
