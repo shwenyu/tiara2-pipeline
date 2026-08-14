@@ -1,0 +1,26 @@
+{
+  "selection": "v2.6.1 seed42",
+  "selection_reason": "Euk-priority: stronger sens-like-unseen and strict Euk recall with negligible strict macro-F1 trade-off; all deltas remain positive versus v2.5.1",
+  "clean_validation": {
+    "development_gate_passed": false,
+    "short_euk_recall_delta_mean": 0.011655110808626468,
+    "short_macro_f1_delta_mean": 0.00309428444346301,
+    "whole_macro_f1_delta_mean": 0.0015708900719581715
+  },
+  "strict_test_panel_cap20": {
+    "rows": 451497,
+    "v2.6.0_mean_macro_f1_delta": 0.000698935260644055,
+    "v2.6.0_mean_euk_recall_delta": 0.006784789666821722,
+    "v2.6.1_mean_macro_f1_delta": 0.0006571121081928958,
+    "v2.6.1_mean_euk_recall_delta": 0.007818483383373506
+  },
+  "sens_like_unseen_panel_cap20": {
+    "rows": 43256,
+    "v2.6.0_mean_macro_f1_delta": 0.001067087209898639,
+    "v2.6.0_mean_euk_recall_delta": 0.006805246226181653,
+    "v2.6.1_mean_macro_f1_delta": 0.0014096645870443532,
+    "v2.6.1_mean_euk_recall_delta": 0.009001484780994828
+  },
+  "evidence_root": "/data/shouhanyu/Tiara2_v2_6_1/internal_benchmark_v1",
+  "external_benchmark": "pending"
+}

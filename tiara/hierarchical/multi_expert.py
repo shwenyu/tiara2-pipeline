@@ -43,6 +43,9 @@ def load_expert(path, device):
 def classify(bundle, input_fasta, output, batch=512, device=None, min_len=1000, max_records=None):
     bundle_path = Path(bundle).resolve()
     manifest = json.loads(bundle_path.read_text())
+    if manifest.get("format") == "tiara2-biosignal-residual-v1":
+        from tiara.hierarchical.biosignal_multi_expert import classify as classify_biosignal
+        return classify_biosignal(bundle, input_fasta, output, batch, device, min_len, max_records)
     if manifest.get("format") == "tiara2-residual-multi-expert-v1":
         from tiara.hierarchical.residual_multi_expert import classify as classify_residual
         return classify_residual(bundle, input_fasta, output, batch, device, min_len, max_records)
