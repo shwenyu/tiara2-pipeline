@@ -1,0 +1,107 @@
+{
+  "checkpoint": "multiobjective_model.pt",
+  "checkpoint_metadata": {
+    "checkpoint_selector": "m7_maximin_head_delta",
+    "dim_in": 16384,
+    "dropout": 0.2,
+    "epoch": 45,
+    "head_sizes": {
+      "euk": 8,
+      "organelle": 2,
+      "prok": 2,
+      "root": 3
+    },
+    "hidden": [
+      4096,
+      2048
+    ],
+    "seed": 44
+  },
+  "feature": {
+    "k": 7,
+    "tfidf": "../tfidf-models-v2.2.0/k7-first-stage"
+  },
+  "files": [
+    {
+      "bytes": 906449706,
+      "name": "multiobjective_model.pt",
+      "sha256": "1b227cb5acd192fda07febcdd4a6eafa8cd6894eb695a0ca5ca34de45e98a887"
+    }
+  ],
+  "gates": {
+    "all_seeds_completed": true,
+    "all_seeds_validation_promotion_gate": true,
+    "external_benchmark": "pending"
+  },
+  "manifest_version": 1,
+  "model_family": "tiara2_hierarchical",
+  "model_tag": "v2.4.1-M7",
+  "output_columns": [
+    "record_id",
+    "root",
+    "leaf",
+    "root_probability",
+    "leaf_probability"
+  ],
+  "published_at": "2026-08-12T11:03:19.045876Z",
+  "selection": {
+    "data": "independent validation only",
+    "external_benchmark_accessed": false,
+    "leaf_max_regression_pp": 0.05,
+    "objective": "maximize minimum macro-F1 delta across root/euk/prok/organelle",
+    "required_seeds": [
+      42,
+      43,
+      44
+    ],
+    "root_min_gain_pp": 0.05,
+    "seeds": [
+      {
+        "checkpoint_sha256": "14705cbb21ac9d74c0bb41a760fd18736cf2a5d8761f67c6b3f4b2e5d6b1bf36",
+        "epochs_completed": 50,
+        "maximin_score_pp": 0.05102400389056516,
+        "promotion_gate": true,
+        "seed": 42,
+        "selected_epoch": 25,
+        "validation_deltas_pp": {
+          "euk": 0.9359115187277833,
+          "organelle": 0.13246445886395675,
+          "prok": 0.6210818969297538,
+          "root": 0.05102400389056516
+        }
+      },
+      {
+        "checkpoint_sha256": "5a55190d240755afd475c6d40a8f7de6c080c651c233adb63575f117e813e195",
+        "epochs_completed": 50,
+        "maximin_score_pp": 0.08158001167372086,
+        "promotion_gate": true,
+        "seed": 43,
+        "selected_epoch": 48,
+        "validation_deltas_pp": {
+          "euk": 0.2258752794913388,
+          "organelle": 0.13702016489625102,
+          "prok": 0.7503400329091248,
+          "root": 0.08158001167372086
+        }
+      },
+      {
+        "checkpoint_sha256": "1b227cb5acd192fda07febcdd4a6eafa8cd6894eb695a0ca5ca34de45e98a887",
+        "epochs_completed": 50,
+        "maximin_score_pp": 0.11858416141503625,
+        "promotion_gate": true,
+        "seed": 44,
+        "selected_epoch": 45,
+        "validation_deltas_pp": {
+          "euk": 0.6314854840381745,
+          "organelle": 0.11858416141503625,
+          "prok": 0.27549916124722795,
+          "root": 0.13067075162248587
+        }
+      }
+    ],
+    "selected_maximin_score_pp": 0.11858416141503625,
+    "selected_seed": 44,
+    "tie_break": "root delta, then lower seed"
+  },
+  "status": "benchmark_candidate"
+}

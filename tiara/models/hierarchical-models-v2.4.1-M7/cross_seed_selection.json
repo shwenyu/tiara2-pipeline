@@ -1,0 +1,59 @@
+{
+  "data": "independent validation only",
+  "external_benchmark_accessed": false,
+  "leaf_max_regression_pp": 0.05,
+  "objective": "maximize minimum macro-F1 delta across root/euk/prok/organelle",
+  "required_seeds": [
+    42,
+    43,
+    44
+  ],
+  "root_min_gain_pp": 0.05,
+  "seeds": [
+    {
+      "checkpoint_sha256": "14705cbb21ac9d74c0bb41a760fd18736cf2a5d8761f67c6b3f4b2e5d6b1bf36",
+      "epochs_completed": 50,
+      "maximin_score_pp": 0.05102400389056516,
+      "promotion_gate": true,
+      "seed": 42,
+      "selected_epoch": 25,
+      "validation_deltas_pp": {
+        "euk": 0.9359115187277833,
+        "organelle": 0.13246445886395675,
+        "prok": 0.6210818969297538,
+        "root": 0.05102400389056516
+      }
+    },
+    {
+      "checkpoint_sha256": "5a55190d240755afd475c6d40a8f7de6c080c651c233adb63575f117e813e195",
+      "epochs_completed": 50,
+      "maximin_score_pp": 0.08158001167372086,
+      "promotion_gate": true,
+      "seed": 43,
+      "selected_epoch": 48,
+      "validation_deltas_pp": {
+        "euk": 0.2258752794913388,
+        "organelle": 0.13702016489625102,
+        "prok": 0.7503400329091248,
+        "root": 0.08158001167372086
+      }
+    },
+    {
+      "checkpoint_sha256": "1b227cb5acd192fda07febcdd4a6eafa8cd6894eb695a0ca5ca34de45e98a887",
+      "epochs_completed": 50,
+      "maximin_score_pp": 0.11858416141503625,
+      "promotion_gate": true,
+      "seed": 44,
+      "selected_epoch": 45,
+      "validation_deltas_pp": {
+        "euk": 0.6314854840381745,
+        "organelle": 0.11858416141503625,
+        "prok": 0.27549916124722795,
+        "root": 0.13067075162248587
+      }
+    }
+  ],
+  "selected_maximin_score_pp": 0.11858416141503625,
+  "selected_seed": 44,
+  "tie_break": "root delta, then lower seed"
+}

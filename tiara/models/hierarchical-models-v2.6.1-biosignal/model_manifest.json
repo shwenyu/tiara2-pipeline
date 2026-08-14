@@ -1,0 +1,40 @@
+{
+  "format": "tiara2-biosignal-residual-v1",
+  "version": "2.6.1",
+  "status": "internal-benchmark-selected-external-benchmark-candidate",
+  "base": {
+    "checkpoint": "hierarchical_model.pt",
+    "sha256": "9f682d5b8c8f278c917d3b59e56cf89217043ed8f1d5faf64ccf3b6f9b83eced",
+    "version": "2.5.1-calibration-baseline"
+  },
+  "expert": {
+    "model": "biosignal_expert_seed42.joblib",
+    "sha256": "5d8c163f12d00b89004610df780fe14e8ce40f0bddc608197a6c3cffb140c372",
+    "estimator": "ExtraTreesClassifier",
+    "trees": 500,
+    "feature_dimension": 60,
+    "seed": 42
+  },
+  "router": {
+    "type": "length_conditioned_euk_only_soft_residual",
+    "tau": 0.45,
+    "alpha": 5.0,
+    "delta_max": 2.0,
+    "base_euk_min": 0.0,
+    "middle_weight": 0.1,
+    "long_weight": 0.05,
+    "length_bins_bp": [2500, 5000],
+    "demotion_allowed": false
+  },
+  "tfidf": "../tfidf-models-v2.2.0/k7-first-stage",
+  "thresholds": {},
+  "temperatures": null,
+  "benchmark_summary": "benchmark_summary.json",
+  "gates": {
+    "clean_validation_requested_gate_passed": false,
+    "strict_internal_nonregression": true,
+    "sens_like_unseen_improvement": true,
+    "three_seed_direction_consistent": true,
+    "external_benchmark": "pending"
+  }
+}
