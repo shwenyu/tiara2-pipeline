@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tiara.hierarchical.multi_expert import expert_for_length
+from tiara.hierarchical.multi_expert import expert_for_length, resolve_manifest_path
 
 
 @pytest.mark.parametrize(
@@ -26,3 +26,15 @@ def test_published_bundle_uses_single_automatic_router():
         "threshold_selection": "roadmap_fixed_candidate_pending_benchmark_gate",
     }
     assert set(manifest["experts"]) == {"long", "short"}
+
+
+def test_bundle_accepts_directory_or_manifest(tmp_path):
+    manifest = tmp_path / "model_manifest.json"
+    manifest.write_text("{}")
+    assert resolve_manifest_path(tmp_path) == manifest.resolve()
+    assert resolve_manifest_path(manifest) == manifest.resolve()
+
+
+def test_bundle_reports_missing_manifest(tmp_path):
+    with pytest.raises(FileNotFoundError, match="bundle manifest not found"):
+        resolve_manifest_path(tmp_path)
