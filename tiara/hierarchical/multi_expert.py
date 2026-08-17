@@ -31,6 +31,16 @@ def expert_for_length(length_bp: int, threshold_bp: int) -> str:
     return "short" if int(length_bp) < int(threshold_bp) else "long"
 
 
+def resolve_manifest_path(bundle) -> Path:
+    """Resolve either a bundle directory or an explicit manifest path."""
+    bundle_path = Path(bundle).expanduser().resolve()
+    if bundle_path.is_dir():
+        bundle_path = bundle_path / "model_manifest.json"
+    if not bundle_path.is_file():
+        raise FileNotFoundError(f"bundle manifest not found: {bundle_path}")
+    return bundle_path
+
+
 def load_expert(path, device):
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     schema = HierarchySchema.from_dict(checkpoint["schema"])
@@ -41,14 +51,14 @@ def load_expert(path, device):
 
 
 def classify(bundle, input_fasta, output, batch=512, device=None, min_len=1000, max_records=None):
-    bundle_path = Path(bundle).resolve()
+    bundle_path = resolve_manifest_path(bundle)
     manifest = json.loads(bundle_path.read_text())
     if manifest.get("format") == "tiara2-biosignal-residual-v1":
         from tiara.hierarchical.biosignal_multi_expert import classify as classify_biosignal
-        return classify_biosignal(bundle, input_fasta, output, batch, device, min_len, max_records)
+        return classify_biosignal(bundle_path, input_fasta, output, batch, device, min_len, max_records)
     if manifest.get("format") == "tiara2-residual-multi-expert-v1":
         from tiara.hierarchical.residual_multi_expert import classify as classify_residual
-        return classify_residual(bundle, input_fasta, output, batch, device, min_len, max_records)
+        return classify_residual(bundle_path, input_fasta, output, batch, device, min_len, max_records)
     if manifest.get("format") != "tiara2-multi-expert-v1":
         raise ValueError("invalid multi-expert manifest")
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))

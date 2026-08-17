@@ -1,0 +1,43 @@
+{
+  "selection": "v2.6.2 M7 plus BioSignal seed42",
+  "selection_reason": "Both frozen internal panels improve root macro-F1, Euk recall and Fungi recall versus M7; v2.6.1 regresses Fungi",
+  "clean_development": {
+    "records": 295415,
+    "feasible_candidates": 864,
+    "mean_root_macro_f1_delta": 0.00037984765170047857,
+    "mean_euk_recall_delta": 0.0027163182900887817,
+    "leaf_guard": "unavailable in coarse clean validation; enforced as one-shot internal benchmark veto"
+  },
+  "strict_test_panel_cap20": {
+    "rows": 451497,
+    "promoted": 600,
+    "delta_vs_M7": {
+      "root_macro_f1": 0.0007292914825446362,
+      "euk_recall": 0.005765191773677403,
+      "fungi_recall": 0.001980198019801982
+    },
+    "short_1000_2500": {
+      "M7_euk_recall": 0.8919594683510988,
+      "v2.6.2_euk_recall": 0.9023226740360574,
+      "M7_fungi_recall": 0.8042733319895182,
+      "v2.6.2_fungi_recall": 0.8086071356581335
+    }
+  },
+  "sens_like_unseen_panel_cap20": {
+    "rows": 43256,
+    "promoted": 76,
+    "delta_vs_M7": {
+      "root_macro_f1": 0.0010248936725960611,
+      "euk_recall": 0.005753526354862704,
+      "fungi_recall": 0.0017647058823530015
+    },
+    "short_1000_2500": {
+      "M7_euk_recall": 0.926273172810569,
+      "v2.6.2_euk_recall": 0.9352226720647774,
+      "M7_fungi_recall": 0.8419497784342689,
+      "v2.6.2_fungi_recall": 0.843426883308715
+    }
+  },
+  "evidence_root": "/data/shouhanyu/Tiara2_v2_6_2",
+  "external_benchmark": "pending"
+}
